@@ -27,14 +27,13 @@ export function Navbar() {
 
         <div className="flex items-center gap-10">
           <div className="hidden items-center gap-10 md:flex">
-            <Link href="#" className="text-lg font-bold text-zinc-400 hover:text-white transition-colors">About</Link>
-          </div>
-          <Link
-            href="/try"
+            <Link
+            href="/calculator"
             className="rounded-full bg-white px-8 py-3 text-lg font-black text-black transition-all hover:bg-zinc-200 active:scale-95 shadow-xl"
           >
-            Try out
+            Graphic Calculator
           </Link>
+          </div> 
         </div>
       </nav>
     </div>
