@@ -24,7 +24,7 @@ SolveMath is a platform that makes presenting math questions easier. With its te
 
 ---
 ## 🎯 Purpose
-SolveMath is designed to make learning math easy and fun. It provides interactive lessons, exercises, and a math problem solver to help users improve their math skills.
+SolveMath is designed to make presenting math questions easier. It provides interactive interface, graphics calculator, and a math problem solver to help users improve their math skills.
 
 ---
 ## 🧩 Installation & Usage
