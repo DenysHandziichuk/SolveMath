@@ -17,7 +17,7 @@ export function MathRenderer({ text, className }: MathRendererProps) {
   const lines = cleanText.split("\n").filter(line => line.trim().length > 0);
 
   return (
-    <div className={cn("flex flex-col", className || "gap-6")}>
+    <div className={cn("flex flex-col", className || "gap-4")}>
       {lines.map((line, lineIdx) => {
         // Process plain text for ^ exponents (e.g., 2^x)
         // We split by ^ followed by alphanumeric characters
