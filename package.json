@@ -9,12 +9,21 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.38.0",
+    "groq-sdk": "^1.1.2",
+    "katex": "^0.16.44",
+    "lucide-react": "^1.7.0",
     "next": "16.2.1",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "react-katex": "^3.1.0",
+    "react-media-recorder": "^1.7.2",
+    "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/katex": "^0.16.8",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
