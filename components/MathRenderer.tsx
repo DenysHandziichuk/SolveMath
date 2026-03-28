@@ -10,8 +10,13 @@ interface MathRendererProps {
 export function MathRenderer({ text, className }: MathRendererProps) {
   if (!text) return null;
 
-  // Clean the text: NEVER show $ symbols
-  const cleanText = text.replace(/\$/g, "");
+  // Aggressive cleaning: remove LaTeX artifacts
+  const cleanText = text
+    .replace(/\$/g, "") // Remove $
+    .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, "$1/$2") // Convert \frac{a}{b} to a/b
+    .replace(/\\/g, "") // Remove \
+    .replace(/\{/g, "") // Remove {
+    .replace(/\}/g, ""); // Remove }
 
   // Split text by newlines and render each line
   const lines = cleanText.split("\n").filter(line => line.trim().length > 0);
