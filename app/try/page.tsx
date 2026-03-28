@@ -72,7 +72,7 @@ export default function TryPage() {
 
   return (
     <div className="min-h-[calc(100vh-64px)] bg-background pt-48 pb-12 px-6">
-      <div className="mx-auto max-w-4xl">
+      <div className="mx-auto w-[80vw]">
         <AnimatePresence mode="wait">
           {!questions.length && !isSolving ? (
             <motion.div
