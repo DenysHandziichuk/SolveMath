@@ -8,7 +8,7 @@ export default function LandingPage() {
   return (
     <div className="flex flex-col min-h-screen overflow-hidden bg-background">
       {/* Hero Section */}
-      <section className="relative flex flex-col items-center justify-center pt-48 pb-32 px-6 text-center max-w-5xl mx-auto flex-1">
+      <section className="relative flex flex-col items-center justify-center pt-48 pb-32 px-6 text-center w-[80vw] mx-auto flex-1">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -23,7 +23,7 @@ export default function LandingPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.1 }}
-          className="text-7xl md:text-[10rem] font-black tracking-tighter leading-[0.8] text-foreground mb-12"
+          className="text-7xl md:text-[8rem] font-black tracking-tighter leading-[0.8] text-foreground mb-12"
         >
           Instant slides.<br />Perfect logic.
         </motion.h1>
@@ -32,7 +32,7 @@ export default function LandingPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.2 }}
-          className="text-xl md:text-3xl text-muted-foreground max-w-3xl mb-16 leading-relaxed font-medium"
+          className="text-xl md:text-2xl text-muted-foreground max-w-3xl mb-16 leading-relaxed font-medium"
         >
           Drop a math screenshot and get a classroom-ready presentation with speaker notes and animated graphs in seconds.
         </motion.p>
