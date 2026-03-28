@@ -18,6 +18,10 @@ export async function POST(req: NextRequest) {
 - CONCLUDING: You must only have ONE final/conclusion slide. Never use two summary or final slides.
 - Formatting: Use '\n' between every statement so they appear on separate lines.
 - Use simple English. NEVER use $ symbols or LaTeX.
+- IMPORTANT: NEVER use \frac, curly braces {}, or LaTeX notation. 
+- Math Formatting: Use plain readable math ONLY (e.g., 'y = 2^x', 'x/2 = 4'). 
+- If you need to show division, use the forward slash (/). 
+- NEVER wrap math in any special characters.
 
 ### SCRIPT RULES (STRICT):
 - The 'notes' (script) MUST match the slide content but use DIFFERENT words.
