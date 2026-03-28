@@ -13,10 +13,10 @@ export async function POST(req: NextRequest) {
 
 ### SLIDE RULES (STRICT):
 - Total slides: 4-6 ONLY.
-- Each slide MUST contain 2-3 SHORT lines of content.
+- Each slide MUST contain 4-5 lines of content.
 - Each line MUST be a complete, simple statement.
 - CONCLUDING: You must only have ONE final/conclusion slide. Never use two summary or final slides.
-- Formatting: Use '\\n' between every statement so they appear on separate lines.
+- Formatting: Use '\n' between every statement so they appear on separate lines.
 - Use simple English. NEVER use $ symbols or LaTeX.
 
 ### SCRIPT RULES (STRICT):
