@@ -201,12 +201,16 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
               )}>
                 <MathRenderer text={currentSlide.content} />
               </div>
-
-              {isGraphSlide && solution.graphData && solution.graphData.points && (
-                 <div className="mt-4 flex justify-center w-full max-w-2xl mx-auto">
-                  <MathGraph points={solution.graphData.points} color={activeTheme.accent} />
-                 </div>
-              )}
+{/* The Animated Graph */}
+{isGraphSlide && solution.graphData && solution.graphData.points && (
+   <div className="mt-4 flex justify-center w-full max-w-2xl mx-auto">
+    <MathGraph 
+      points={solution.graphData.points} 
+      color={activeTheme.accent} 
+      equation={solution.graphData.equation}
+    />
+   </div>
+)}
             </motion.div>
           </AnimatePresence>
         </div>
