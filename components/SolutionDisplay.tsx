@@ -193,11 +193,11 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
               <h1 className={cn("mb-12 text-6xl md:text-7xl font-black tracking-tight drop-shadow-2xl transition-colors duration-500", activeTheme.text)}>
                 {currentSlide.title}
               </h1>
-              
+              {/* Slide Content */}
               <div className={cn(
-                "text-3xl md:text-4xl lg:text-5xl font-bold leading-relaxed space-y-8 transition-colors duration-500",
+                "text-2xl md:text-3xl lg:text-4xl font-bold leading-tight transition-colors duration-500",
                 activeTheme.subtext,
-                isGraphSlide && solution.graphData?.points && "lg:text-2xl mb-8"
+                isGraphSlide && solution.graphData?.points && "lg:text-xl mb-6"
               )}>
                 <MathRenderer text={currentSlide.content} />
               </div>
