@@ -10,13 +10,15 @@ interface MathRendererProps {
 export function MathRenderer({ text, className }: MathRendererProps) {
   if (!text) return null;
 
-  // Aggressive cleaning: remove LaTeX artifacts
+  // Aggressive cleaning: remove LaTeX artifacts and transform symbols
   const cleanText = text
     .replace(/\$/g, "") // Remove $
     .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, "$1/$2") // Convert \frac{a}{b} to a/b
     .replace(/\\/g, "") // Remove \
     .replace(/\{/g, "") // Remove {
-    .replace(/\}/g, ""); // Remove }
+    .replace(/\}/g, "") // Remove }
+    .replace(/\*/g, " × ") // keyboard * to math multiplication
+    .replace(/\//g, " ÷ "); // keyboard / to math division
 
   // Split text by newlines and render each line
   const lines = cleanText.split("\n").filter(line => line.trim().length > 0);
@@ -24,17 +26,19 @@ export function MathRenderer({ text, className }: MathRendererProps) {
   return (
     <div className={cn("flex flex-col", className || "gap-4")}>
       {lines.map((line, lineIdx) => {
-        // Process plain text for ^ exponents (e.g., 2^x)
-        // We split by ^ followed by alphanumeric characters
-        const subParts = line.split(/(\^[a-zA-Z0-9]+)/g);
+        // More robust exponent matching: finds ^ followed by numbers or letters
+        // We split and keep the delimiter to process it
+        const subParts = line.split(/(\s*\^[a-zA-Z0-9]+\s*)/g);
         
         return (
           <p key={lineIdx} className="leading-tight">
             {subParts.map((subPart, j) => {
-              if (subPart.startsWith("^")) {
+              const trimmed = subPart.trim();
+              if (trimmed.startsWith("^")) {
+                const exponentValue = trimmed.slice(1);
                 return (
-                  <sup key={j} className="text-[0.6em] leading-none ml-0.5 align-top relative -top-[0.2em]">
-                    {subPart.slice(1)}
+                  <sup key={j} className="text-[0.6em] leading-none font-bold align-top relative -top-[0.3em] ml-0.5">
+                    {exponentValue}
                   </sup>
                 );
               }
