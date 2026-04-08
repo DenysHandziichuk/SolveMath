@@ -8,14 +8,24 @@ interface Point {
   y: number;
 }
 
-interface MathGraphProps {
+interface GraphFunction {
   points: Point[];
   color?: string;
   equation?: string;
 }
 
-export function MathGraph({ points, color = "#6366f1", equation }: MathGraphProps) {
-  if (!points || points.length === 0) return null;
+interface MathGraphProps {
+  functions?: GraphFunction[];
+  // Maintain backward compatibility for single point set
+  points?: Point[];
+  color?: string;
+  equation?: string;
+}
+
+export function MathGraph({ functions, points, color = "#6366f1", equation }: MathGraphProps) {
+  const displayFunctions: GraphFunction[] = functions || (points ? [{ points, color, equation }] : []);
+  
+  if (displayFunctions.length === 0) return null;
 
   // Configuration
   const width = 600;
@@ -35,13 +45,6 @@ export function MathGraph({ points, color = "#6366f1", equation }: MathGraphProp
     return height - (padding + ((y - minY) / (maxY - minY)) * (height - 2 * padding));
   };
 
-  // Generate SVG path string, filtering points within range
-  const validPoints = points.filter(p => p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY);
-  
-  const pathData = validPoints
-    .map((p, i) => `${i === 0 ? "M" : "L"} ${scaleX(p.x)} ${scaleY(p.y)}`)
-    .join(" ");
-
   // Generate Grid Lines (1 unit steps)
   const xGrid = Array.from({ length: 21 }, (_, i) => -10 + i);
   const yGrid = Array.from({ length: 15 }, (_, i) => -7 + i);
@@ -52,19 +55,26 @@ export function MathGraph({ points, color = "#6366f1", equation }: MathGraphProp
 
   return (
     <div className="relative flex flex-col items-center justify-center p-4 lg:p-8 bg-zinc-950/40 rounded-[2.5rem] border border-white/5 w-full max-w-3xl shadow-2xl backdrop-blur-xl group overflow-hidden">
-      {/* Desmos-style Equation Card */}
-      {equation && (
-        <motion.div 
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="absolute top-6 left-6 z-20 flex items-center gap-3 bg-zinc-900/90 border border-white/10 p-3 rounded-2xl shadow-xl backdrop-blur-md"
-        >
-          <div style={{ backgroundColor: color }} className="h-4 w-4 rounded-full shadow-[0_0_10px_rgba(0,0,0,0.5)] border-2 border-white/20" />
-          <div className="text-sm font-black font-mono text-white/90">
-            <MathRenderer text={equation} />
-          </div>
-        </motion.div>
-      )}
+      {/* Desmos-style Equation Card(s) */}
+      <div className="absolute top-6 left-6 z-20 flex flex-col gap-2">
+        {displayFunctions.length > 1 && (
+          <div className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-1 ml-1">Legend</div>
+        )}
+        {displayFunctions.map((fn, idx) => fn.equation && (
+          <motion.div 
+            key={idx}
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: idx * 0.2 }}
+            className="flex items-center gap-3 bg-zinc-900/90 border border-white/10 p-3 rounded-2xl shadow-xl backdrop-blur-md"
+          >
+            <div style={{ backgroundColor: fn.color || color }} className="h-4 w-4 rounded-full shadow-[0_0_10px_rgba(0,0,0,0.5)] border-2 border-white/20" />
+            <div className="text-sm font-black font-mono text-white/90">
+              <MathRenderer text={fn.equation} />
+            </div>
+          </motion.div>
+        ))}
+      </div>
 
       <svg
         viewBox={`0 0 ${width} ${height}`}
@@ -116,24 +126,31 @@ export function MathGraph({ points, color = "#6366f1", equation }: MathGraphProp
           </text>
         ))}
 
-        {/* The Function Path */}
-        {pathData && (
-          <motion.path
-            d={pathData}
-            fill="none"
-            stroke={color} 
-            strokeWidth="5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            initial={{ pathLength: 0, opacity: 0 }}
-            animate={{ pathLength: 1, opacity: 1 }}
-            transition={{ duration: 2.5, ease: [0.22, 1, 0.36, 1] }}
-            style={{ filter: `drop-shadow(0 0 15px ${color})` }}
-          />
-        )}
+        {/* The Function Paths */}
+        {displayFunctions.map((fn, idx) => {
+          const validPoints = fn.points.filter(p => p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY);
+          const pathData = validPoints
+            .map((p, i) => `${i === 0 ? "M" : "L"} ${scaleX(p.x)} ${scaleY(p.y)}`)
+            .join(" ");
+
+          return pathData && (
+            <motion.path
+              key={idx}
+              d={pathData}
+              fill="none"
+              stroke={fn.color || color} 
+              strokeWidth={idx === 0 && displayFunctions.length > 1 ? "3" : "5"}
+              strokeDasharray={idx === 0 && displayFunctions.length > 1 ? "10,5" : "0"}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              initial={{ pathLength: 0, opacity: 0 }}
+              animate={{ pathLength: 1, opacity: 1 }}
+              transition={{ duration: 2.5, ease: [0.22, 1, 0.36, 1], delay: idx * 0.5 }}
+              style={{ filter: `drop-shadow(0 0 15px ${fn.color || color})` }}
+            />
+          );
+        })}
       </svg>
-      
-    
     </div>
   );
 }

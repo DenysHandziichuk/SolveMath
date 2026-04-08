@@ -14,13 +14,20 @@ interface Slide {
   notes: string;
 }
 
+interface GraphFunction {
+  points: { x: number; y: number }[];
+  color?: string;
+  equation?: string;
+}
+
 interface Solution {
   explanation: string;
   slides: Slide[];
   graphData?: {
     type: string;
     equation: string;
-    points: { x: number; y: number }[];
+    points?: { x: number; y: number }[];
+    functions?: GraphFunction[];
   };
 }
 
@@ -202,10 +209,11 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
                 <MathRenderer text={currentSlide.content} />
               </div>
 {/* The Animated Graph */}
-{isGraphSlide && solution.graphData && solution.graphData.points && (
+{isGraphSlide && solution.graphData && (solution.graphData.points || solution.graphData.functions) && (
    <div className="mt-4 flex justify-center w-full max-w-2xl mx-auto">
     <MathGraph 
       points={solution.graphData.points} 
+      functions={solution.graphData.functions}
       color={activeTheme.accent} 
       equation={solution.graphData.equation}
     />

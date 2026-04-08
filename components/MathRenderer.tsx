@@ -18,7 +18,8 @@ export function MathRenderer({ text, className }: MathRendererProps) {
     .replace(/\{/g, "") // Remove {
     .replace(/\}/g, "") // Remove }
     .replace(/\*/g, " × ") // keyboard * to math multiplication
-    .replace(/\//g, " ÷ "); // keyboard / to math division
+    .replace(/\//g, " ÷ ") // keyboard / to math division
+    .replace(/\|([^|]+)\|/g, "|$1|"); // Ensure absolute value bars are preserved or styled
 
   // Split text by newlines and render each line
   const lines = cleanText.split("\n").filter(line => line.trim().length > 0);
