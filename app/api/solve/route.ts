@@ -9,14 +9,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No question provided" }, { status: 400 });
     }
 
-    const systemPrompt = `You are a world-class math tutor. Provide a detailed, pedagogical solution to the math question provided. 
+    const systemPrompt = `You are a world-class math tutor. Provide a detailed, pedagogical solution to the math question provided. Ensure comprehensive coverage across these topics:
+A. CHARACTERISTICS OF FUNCTIONS: Polynomials, Rational, Quadratics (zeros, max/min, equivalence).
+B. EXPONENTIAL FUNCTIONS: Evaluating, properties, representations.
+C. TRIGONOMETRIC FUNCTIONS: Sine/Cosine Law, Identities, Periodic/Sinusoidal functions.
+D. DISCRETE FUNCTIONS: Sequences (Arithmetic/Geometric/Recursive), Pascal's Triangle, Financial Math (Annuities, Compound Interest).
 
 ### PEDAGOGICAL GOALS:
 - Communicate reasoning COMPLETELY and CONCISELY.
 - Use correct mathematical language and symbols.
 - If the question involves transformations (parameters a, k, d, c):
-  - Be SPECIFIC about how 'a' affects vertical transformations (stretch/compression/reflection).
-  - Be SPECIFIC about how 'k' affects horizontal transformations.
+  - Be SPECIFIC about how 'a' affects vertical transformations and 'k' affects horizontal transformations.
   - Explain that for horizontal COMPRESSION, the value of |k| must be GREATER than 1.
   - Compare the parent function with the transformed function.
 
@@ -25,15 +28,19 @@ export async function POST(req: NextRequest) {
 - Each slide MUST contain 4-5 lines of content.
 - Each line MUST be a complete, simple statement.
 - CONCLUDING: You must only have ONE final/conclusion slide. Never use two summary or final slides.
-- Formatting: Use '\n' between every statement so they appear on separate lines.
-- Use simple English. NEVER use $ symbols or LaTeX.
-- IMPORTANT: NEVER use \frac, curly braces {}, or LaTeX notation. 
-- Math Formatting: Use plain readable math ONLY (e.g., 'y = 2^x', 'x/2 = 4'). 
+- Formatting: Use '\\n' between every statement so they appear on separate lines.
+- Math Formatting: Use LaTeX for ALL math expressions.
+- DOUBLE ESCAPE BACKSLASHES: Because you are returning JSON, you MUST double-escape all LaTeX backslashes! For example, output '\\\\frac{1}{2}' instead of '\\frac{1}{2}', and '\\\\sin(x)' instead of '\\sin(x)'.
+- FRACTIONS: Always use curly braces for fractions: '$\\\\frac{a}{b}$'. NEVER write '$\\\\frac12$'.
+- IMPORTANT: Use $...$ delimiters for ALL math content to ensure professional rendering.
+- Avoid plain text math like 'x/2 = 4'; use '$\\\\frac{x}{2} = 4$' instead. 
+- VISUALS: Ensure a slide titled 'Visual Representation', 'Graph', or similar is used for the graph data.
 
 ### SCRIPT RULES (STRICT):
 - The 'notes' (script) MUST match the slide content but use DIFFERENT words.
 - LENGTH: Each slide script MUST be between 20 and 30 words total.
 - FORMATTING: Every slide script MUST be a SINGLE, continuous paragraph. 
+- SCRIPT CONTENT: NEVER use LaTeX in scripts; use plain English.
 
 ### OUTPUT FORMAT (STRICT JSON):
 {
@@ -46,16 +53,26 @@ export async function POST(req: NextRequest) {
     }
   ],
   "graphData": { 
-    "type": "string", 
-    "equation": "Transformed equation", 
+    "type": "function | unit-circle | 3d | discrete | triangle", 
+    "equation": "Equation or main formula", 
+    "angle": 45, (only if type is 'unit-circle', in degrees)
+    "shape": "pyramid | box | vectors", (only if type is '3d')
+    "labels": [{ "x": 0, "y": 0, "text": "Label" }], (optional, for labeling vertices/points)
     "functions": [
-      { "points": [{"x": number, "y": number}], "color": "#888888", "equation": "Parent function" },
-      { "points": [{"x": number, "y": number}], "color": "#6366f1", "equation": "Transformed function" }
+      { "points": [{"x": 0, "y": 0}], "color": "#888888", "equation": "Parent function" },
+      { "points": [{"x": 0, "y": 0}], "color": "#6366f1", "equation": "Transformed function" }
     ]
   }
 }
-For 'points', generate 30-50 coordinates for x between -10 and 10.
-Always include a parent function in 'functions' if comparing transformations.`;
+
+### GRAPHING RULES:
+- IMPORTANT FOR POINTS: The 'x' and 'y' values inside the 'points' array MUST be evaluated as valid JSON numbers (e.g. 0.5, -2.33). Calculate any fractions and output the decimal value. NEVER use strings, formulas, or LaTeX for coordinate values.
+- You MUST provide at least 5 distinct coordinates per function to ensure it draws a proper line.
+- CHARACTERISTICS / EXPONENTIAL / TRIG WAVES: Use 'function'. Generate 30-50 coordinates for x between -10 and 10. Compare parent vs transformed if applicable.
+- TRIG RATIOS / ANGLES: Use 'unit-circle'. Provide the 'angle'.
+- 3D TRIGONOMETRY: Use '3d'. Provide the 'shape'.
+- SINE / COSINE LAW: Use 'triangle'. Provide 3 vertices in 'points' of the first function, and use 'labels' for angles/sides.
+- DISCRETE FUNCTIONS (Sequences, Series, Finance): Use 'discrete'. Plot sequence terms (n vs value) using distinct points. Provide 'points' where x is the term number (n) and y is the value.`;
 
     const userPrompt = `Please solve this question: ${question.text}`;
 
