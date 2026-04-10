@@ -9,18 +9,22 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.5.0",
+    "@types/three": "^0.183.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.38.0",
     "groq-sdk": "^1.1.2",
-    "katex": "^0.16.44",
-    "lucide-react": "^1.7.0",
+    "katex": "^0.16.45",
+    "lucide-react": "^1.8.0",
     "mathjs": "^15.1.1",
     "next": "16.2.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-katex": "^3.1.0",
     "react-media-recorder": "^1.7.2",
-    "tailwind-merge": "^3.5.0"
+    "tailwind-merge": "^3.5.0",
+    "three": "^0.183.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -28,6 +32,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/react-katex": "^3.0.4",
     "eslint": "^9",
     "eslint-config-next": "16.2.1",
     "tailwindcss": "^4",
