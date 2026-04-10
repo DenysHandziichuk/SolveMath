@@ -128,7 +128,24 @@ export function MathGraph({ functions, points, color = "#6366f1", equation }: Ma
 
         {/* The Function Paths */}
         {displayFunctions.map((fn, idx) => {
-          const validPoints = fn.points.filter(p => p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY);
+          const validPoints = fn.points.filter(p => typeof p.x === 'number' && !isNaN(p.x) && typeof p.y === 'number' && !isNaN(p.y));
+          
+          if (validPoints.length === 1) {
+            return (
+              <motion.circle
+                key={idx}
+                cx={scaleX(validPoints[0].x)}
+                cy={scaleY(validPoints[0].y)}
+                r="6"
+                fill={fn.color || color}
+                initial={{ scale: 0, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ duration: 1 }}
+                style={{ filter: `drop-shadow(0 0 10px ${fn.color || color})` }}
+              />
+            );
+          }
+
           const pathData = validPoints
             .map((p, i) => `${i === 0 ? "M" : "L"} ${scaleX(p.x)} ${scaleY(p.y)}`)
             .join(" ");
