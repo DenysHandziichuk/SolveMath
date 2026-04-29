@@ -2,6 +2,8 @@
 
 import { motion } from "framer-motion";
 import { MathRenderer } from "./MathRenderer";
+import { compile } from "mathjs";
+import { useMemo } from "react";
 
 interface Point {
   x: number;
@@ -9,7 +11,8 @@ interface Point {
 }
 
 interface GraphFunction {
-  points: Point[];
+  points?: Point[];
+  mathjs?: string;
   color?: string;
   equation?: string;
 }
@@ -18,24 +21,68 @@ interface MathGraphProps {
   functions?: GraphFunction[];
   // Maintain backward compatibility for single point set
   points?: Point[];
+  properties?: { name: string; value: string }[];
+  bounds?: { minX: number; maxX: number; minY: number; maxY: number };
   color?: string;
   equation?: string;
 }
 
-export function MathGraph({ functions, points, color = "#6366f1", equation }: MathGraphProps) {
-  const displayFunctions: GraphFunction[] = functions || (points ? [{ points, color, equation }] : []);
-  
-  if (displayFunctions.length === 0) return null;
-
+export function MathGraph({ functions, points, properties, bounds, color = "#6366f1", equation }: MathGraphProps) {
   // Configuration
   const width = 600;
   const height = 400;
   const padding = 40;
 
-  const minX = -10;
-  const maxX = 10;
-  const minY = -7;
-  const maxY = 7;
+  const minX = bounds?.minX ?? -10;
+  const maxX = bounds?.maxX ?? 10;
+  const minY = bounds?.minY ?? -7;
+  const maxY = bounds?.maxY ?? 7;
+
+  // Use mathjs to calculate points if the mathjs string is provided
+  const displayFunctions = useMemo(() => {
+    const rawFunctions: GraphFunction[] = functions || (points ? [{ points, color, equation }] : []);
+    
+    return rawFunctions.map(fn => {
+      if (fn.mathjs) {
+        const generatedPoints: Point[] = [];
+        try {
+          if (fn.mathjs.includes(",")) {
+             // Parametric
+             const [xEq, yEq] = fn.mathjs.split(",").map(s => s.trim());
+             const cx = compile(xEq);
+             const cy = compile(yEq);
+             for (let t = 0; t <= 2 * Math.PI + 0.1; t += 0.1) {
+               try {
+                 const x = cx.evaluate({ t, x: t });
+                 const y = cy.evaluate({ t, x: t });
+                 if (typeof x === 'number' && typeof y === 'number' && isFinite(x) && isFinite(y)) {
+                   generatedPoints.push({ x, y });
+                 }
+               } catch {}
+             }
+          } else {
+             // Standard y = f(x)
+             const cy = compile(fn.mathjs);
+             const step = (maxX - minX) / 150; // Use reasonable number of points
+             for (let x = minX; x <= maxX; x += step) {
+               try {
+                 const y = cy.evaluate({ x });
+                 if (typeof y === 'number' && isFinite(y)) {
+                   generatedPoints.push({ x, y });
+                 }
+               } catch {}
+             }
+          }
+          return { ...fn, points: generatedPoints.length > 0 ? generatedPoints : (fn.points || []) };
+        } catch {
+          return { ...fn, points: fn.points || [] };
+        }
+      }
+      return { ...fn, points: fn.points || [] };
+    });
+  }, [functions, points, color, equation, minX, maxX]);
+  
+  if (displayFunctions.length === 0) return null;
 
   // Scaling functions mapping logical units to SVG pixels
   const scaleX = (x: number) => {
@@ -45,13 +92,16 @@ export function MathGraph({ functions, points, color = "#6366f1", equation }: Ma
     return height - (padding + ((y - minY) / (maxY - minY)) * (height - 2 * padding));
   };
 
-  // Generate Grid Lines (1 unit steps)
-  const xGrid = Array.from({ length: 21 }, (_, i) => -10 + i);
-  const yGrid = Array.from({ length: 15 }, (_, i) => -7 + i);
+  // Generate Grid Lines
+  const xGridStep = Math.ceil((maxX - minX) / 15) || 1;
+  const yGridStep = Math.ceil((maxY - minY) / 10) || 1;
 
-  // Axis Ticks
-  const xTicks = [-8, -6, -4, -2, 2, 4, 6, 8];
-  const yTicks = [-6, -4, -2, 2, 4, 6];
+  const xGrid = Array.from({ length: Math.floor((maxX - minX) / xGridStep) + 1 }, (_, i) => minX + i * xGridStep);
+  const yGrid = Array.from({ length: Math.floor((maxY - minY) / yGridStep) + 1 }, (_, i) => minY + i * yGridStep);
+
+  // Axis Ticks (skip edges to avoid overlap)
+  const xTicks = xGrid.filter(t => t !== minX && t !== maxX);
+  const yTicks = yGrid.filter(t => t !== minY && t !== maxY && t !== 0);
 
   return (
     <div className="relative flex flex-col items-center justify-center p-4 lg:p-8 bg-zinc-950/40 rounded-[2.5rem] border border-white/5 w-full max-w-3xl shadow-2xl backdrop-blur-xl group overflow-hidden">
@@ -75,6 +125,27 @@ export function MathGraph({ functions, points, color = "#6366f1", equation }: Ma
           </motion.div>
         ))}
       </div>
+
+      {properties && properties.length > 0 && (
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5 }}
+          className="absolute bottom-6 right-6 z-20 flex flex-col gap-3 bg-zinc-900/90 border border-white/10 p-4 rounded-2xl shadow-xl backdrop-blur-md"
+        >
+          <div className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Properties</div>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+            {properties.map((prop, idx) => (
+              <div key={idx} className="flex flex-col">
+                <span className="text-[10px] font-bold text-white/50 uppercase">{prop.name}</span>
+                <span className="text-sm font-black font-mono text-white/90 mt-0.5">
+                  <MathRenderer text={prop.value} />
+                </span>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
 
       <svg
         viewBox={`0 0 ${width} ${height}`}
@@ -113,7 +184,7 @@ export function MathGraph({ functions, points, color = "#6366f1", equation }: Ma
             x={scaleX(tick)} y={scaleY(0) + 18} 
             fontSize="10" fill="white" fillOpacity="0.3" textAnchor="middle" fontWeight="bold"
           >
-            {tick}
+            {Math.round(tick * 100) / 100}
           </text>
         ))}
         {yTicks.map(tick => (
@@ -122,13 +193,13 @@ export function MathGraph({ functions, points, color = "#6366f1", equation }: Ma
             x={scaleX(0) - 12} y={scaleY(tick) + 4} 
             fontSize="10" fill="white" fillOpacity="0.3" textAnchor="end" fontWeight="bold"
           >
-            {tick}
+            {Math.round(tick * 100) / 100}
           </text>
         ))}
 
         {/* The Function Paths */}
         {displayFunctions.map((fn, idx) => {
-          const validPoints = fn.points.filter(p => typeof p.x === 'number' && !isNaN(p.x) && typeof p.y === 'number' && !isNaN(p.y));
+          const validPoints = fn.points?.filter(p => typeof p.x === 'number' && !isNaN(p.x) && typeof p.y === 'number' && !isNaN(p.y)) || [];
           
           if (validPoints.length === 1) {
             return (
@@ -146,9 +217,25 @@ export function MathGraph({ functions, points, color = "#6366f1", equation }: Ma
             );
           }
 
-          const pathData = validPoints
-            .map((p, i) => `${i === 0 ? "M" : "L"} ${scaleX(p.x)} ${scaleY(p.y)}`)
-            .join(" ");
+          // Asymptote checking logic
+          let pathData = "";
+          const yThreshold = (maxY - minY) * 1.5;
+          let prevPoint: Point | null = null;
+
+          validPoints.forEach((p, i) => {
+            const sx = scaleX(p.x);
+            const sy = scaleY(p.y);
+            if (i === 0) {
+              pathData += `M ${sx} ${sy}`;
+            } else {
+              if (prevPoint && Math.abs(p.y - prevPoint!.y) > yThreshold) {
+                pathData += ` M ${sx} ${sy}`; // Start new segment
+              } else {
+                pathData += ` L ${sx} ${sy}`;
+              }
+            }
+            prevPoint = p;
+          });
 
           return pathData && (
             <motion.path
