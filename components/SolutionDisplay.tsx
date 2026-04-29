@@ -28,6 +28,8 @@ interface Solution {
     equation: string;
     points?: { x: number; y: number }[];
     functions?: GraphFunction[];
+    properties?: { name: string; value: string }[];
+    bounds?: { minX: number; maxX: number; minY: number; maxY: number };
   };
 }
 
@@ -214,6 +216,8 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
     <MathGraph 
       points={solution.graphData.points} 
       functions={solution.graphData.functions}
+      properties={solution.graphData.properties}
+      bounds={solution.graphData.bounds}
       color={activeTheme.accent} 
       equation={solution.graphData.equation}
     />
