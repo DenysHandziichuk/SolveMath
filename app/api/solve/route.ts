@@ -23,6 +23,14 @@ D. DISCRETE FUNCTIONS: Sequences (Arithmetic/Geometric/Recursive), Pascal's Tria
   - Explain that for horizontal COMPRESSION, the value of |k| must be GREATER than 1.
   - Compare the parent function with the transformed function.
 
+### ACCURACY & SPECIFICITY RULES (STRICT):
+- STRICTLY SOLVE THE PROVIDED QUESTION. Do not invent a different question, and do not provide generic or unrelated examples.
+- NO FLUFF OR FILLER: Absolutely DO NOT use generic, vague, or filler phrases such as "This is fundamental in math", "This is an important concept", or "As we can see here". Every single sentence must contain dense, specific mathematical value.
+- BE HIGHLY SPECIFIC. Provide concrete, numerical examples directly derived from the question. Avoid vague statements like "this shifts the graph". Instead, explicitly state "this shifts the graph right by 3 units".
+- EXACT VALUES: Use the exact numbers, equations, and constraints provided in the user's prompt. Do not generalize.
+- If the question asks for a comparison, directly compare the exact functions or shapes requested.
+- PERIODIC FUNCTIONS: If the question involves a periodic function (e.g., sine or cosine), you MUST explicitly calculate and state its Amplitude, Period, Phase Shift, and Vertical Translation/Shift in the presentation slides.
+
 ### SLIDE RULES (STRICT):
 - Total slides: 4-6 ONLY.
 - Each slide MUST contain 4-5 lines of content.
@@ -58,21 +66,25 @@ D. DISCRETE FUNCTIONS: Sequences (Arithmetic/Geometric/Recursive), Pascal's Tria
     "angle": 45, (only if type is 'unit-circle', in degrees)
     "shape": "pyramid | box | vectors", (only if type is '3d')
     "labels": [{ "x": 0, "y": 0, "text": "Label" }], (optional, for labeling vertices/points)
+    "properties": [{ "name": "Amplitude", "value": "2" }, { "name": "Period", "value": "\\\\pi" }], (optional, use for periodic functions like sine/cosine)
+    "bounds": { "minX": -10, "maxX": 10, "minY": -10, "maxY": 10 }, (optional, override default [-10,10] and [-7,7] ranges)
     "functions": [
-      { "points": [{"x": 0, "y": 0}], "color": "#888888", "equation": "Parent function" },
-      { "points": [{"x": 0, "y": 0}], "color": "#6366f1", "equation": "Transformed function" }
+      { "mathjs": "sin(x)", "color": "#888888", "equation": "y = \\sin(x)", "points": [] },
+      { "mathjs": "2*sin(x-3.14)", "color": "#6366f1", "equation": "y = 2\\sin(x - \\pi)", "points": [] }
     ]
   }
 }
 
 ### GRAPHING RULES:
-- IMPORTANT FOR POINTS: The 'x' and 'y' values inside the 'points' array MUST be evaluated as valid JSON numbers (e.g. 0.5, -2.33). Calculate any fractions and output the decimal value. NEVER use strings, formulas, or LaTeX for coordinate values.
-- You MUST provide at least 5 distinct coordinates per function to ensure it draws a proper line.
-- CHARACTERISTICS / EXPONENTIAL / TRIG WAVES: Use 'function'. Generate 30-50 coordinates for x between -10 and 10. Compare parent vs transformed if applicable.
+- IMPORTANT FOR CONTINUOUS GRAPHS (Sine, Cosine, Polynomials, Circles): DO NOT manually generate large 'points' arrays, as you will fail and draw a straight line! Instead, you MUST provide a "mathjs" string for each function. This string must be a valid math.js expression (e.g., 'sin(x)', 'x^2 + 2*x', '4*cos(t), 4*sin(t)'). The frontend will automatically generate the coordinates!
+- You STILL need to provide the 'equation' field formatted in LaTeX for the legend.
+- SHAPES (TRIANGLES, POLYGONS): For discrete shapes that cannot be represented by a single math equation (like a triangle), provide the "points" array manually (e.g. 4 points to close a triangle loop).
+- MULTIPLE GRAPHS / COMPARISONS: If the problem compares functions (e.g., sine vs cosine, parent vs transformed), you MUST provide 2 OR MORE functions in the "functions" array to display them on the SAME slide for comparison.
+- CHARACTERISTICS / EXPONENTIAL / TRIG WAVES: Use 'function'.
 - TRIG RATIOS / ANGLES: Use 'unit-circle'. Provide the 'angle'.
 - 3D TRIGONOMETRY: Use '3d'. Provide the 'shape'.
-- SINE / COSINE LAW: Use 'triangle'. Provide 3 vertices in 'points' of the first function, and use 'labels' for angles/sides.
-- DISCRETE FUNCTIONS (Sequences, Series, Finance): Use 'discrete'. Plot sequence terms (n vs value) using distinct points. Provide 'points' where x is the term number (n) and y is the value.`;
+- SINE / COSINE LAW: Use 'triangle'. Provide 4 vertices in 'points' of the first function (closing the loop), and use 'labels' for angles/sides.
+- DISCRETE FUNCTIONS: Use 'discrete'. Plot sequence terms (n vs value) using distinct points. Provide 'points' where x is the term number (n) and y is the value.`;
 
     const userPrompt = `Please solve this question: ${question.text}`;
 
