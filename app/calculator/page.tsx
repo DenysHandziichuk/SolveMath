@@ -1,44 +1,90 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { MathGraph } from "@/components/MathGraph";
-import { motion } from "framer-motion";
-import { evaluate } from "mathjs";
-import { Calculator, Info, AlertCircle } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { compile } from "mathjs";
+import { Calculator, Info, Plus, X } from "lucide-react";
+
+const COLORS = ["#6366f1", "#ec4899", "#10b981", "#f59e0b", "#8b5cf6"];
 
 export default function CalculatorPage() {
-  const [equation, setEquation] = useState("x^2");
-  const [points, setPoints] = useState<{ x: number; y: number }[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [equations, setEquations] = useState<string[]>(["x^2", "sin(x)"]);
+  const [errors, setErrors] = useState<(string | null)[]>([]);
 
-  // Generate points when equation changes
-  useEffect(() => {
-    try {
-      const newPoints = [];
-      // Range from -10 to 10 with 0.2 increments for smoothness
-      for (let x = -10; x <= 10; x += 0.2) {
-        try {
-          const y = evaluate(equation, { x });
-          // Only add valid numbers to avoid graph breaks
-          if (typeof y === 'number' && isFinite(y)) {
-            newPoints.push({ x, y });
+  // Generate functions when equations change
+  const graphFunctions = useMemo(() => {
+    const newFunctions: { points: {x: number, y: number}[], color: string, equation: string }[] = [];
+    const newErrors: (string | null)[] = [...equations.map(() => null)];
+
+    equations.forEach((eq, index) => {
+      if (!eq.trim()) return;
+
+      const points = [];
+      try {
+        // Parametric mode: "x(t), y(t)" (e.g., "cos(t), sin(t)" for a circle)
+        if (eq.includes(",")) {
+          const [xEq, yEq] = eq.split(",").map(s => s.trim());
+          const cx = compile(xEq);
+          const cy = compile(yEq);
+          for (let t = 0; t <= 2 * Math.PI + 0.1; t += 0.1) {
+            try {
+              const x = cx.evaluate({ t, x: t }); // pass t (and x=t fallback)
+              const y = cy.evaluate({ t, x: t });
+              if (typeof x === 'number' && typeof y === 'number' && isFinite(x) && isFinite(y)) {
+                points.push({ x, y });
+              }
+            } catch {
+              // skip invalid point
+            }
           }
-        } catch {
-          // Individual point failure (e.g. log of negative) - just skip
+        } else {
+          // Standard y = f(x) mode
+          const cy = compile(eq);
+          for (let x = -10; x <= 10; x += 0.2) {
+            try {
+              const y = cy.evaluate({ x });
+              if (typeof y === 'number' && isFinite(y)) {
+                points.push({ x, y });
+              }
+            } catch {
+              // skip invalid point
+            }
+          }
         }
+
+        if (points.length === 0) {
+          throw new Error("Invalid equation results");
+        }
+        
+        newFunctions.push({ points, color: COLORS[index % COLORS.length], equation: eq });
+      } catch {
+        newErrors[index] = "Invalid mathematical expression";
       }
-      
-      if (newPoints.length === 0) {
-        throw new Error("Invalid equation results");
-      }
-      
-      setPoints(newPoints);
-      setError(null);
-    } catch {
-      setError("Invalid mathematical expression");
-      setPoints([]);
+    });
+
+    return { functions: newFunctions, errors: newErrors };
+  }, [equations]);
+
+  useEffect(() => {
+    setErrors(graphFunctions.errors);
+  }, [graphFunctions.errors]);
+
+  const updateEquation = (index: number, val: string) => {
+    const newEqs = [...equations];
+    newEqs[index] = val;
+    setEquations(newEqs);
+  };
+
+  const removeEquation = (index: number) => {
+    setEquations(equations.filter((_, i) => i !== index));
+  };
+
+  const addEquation = () => {
+    if (equations.length < 5) {
+      setEquations([...equations, ""]);
     }
-  }, [equation]);
+  };
 
   return (
     <div className="min-h-screen bg-background pt-48 pb-24 px-6 overflow-x-hidden">
@@ -55,54 +101,88 @@ export default function CalculatorPage() {
           </motion.div>
           <h1 className="text-5xl md:text-7xl font-black tracking-tighter">Live Calculator</h1>
           <p className="text-xl text-muted-foreground max-w-xl mx-auto">
-            Type any function of x below to visualize it instantly on our high-precision grid.
+            Compare multiple functions or plot parametric shapes instantly on our high-precision grid.
           </p>
         </div>
 
         <div className="w-full flex flex-col lg:flex-row gap-12 items-start justify-center">
           {/* Input Panel */}
-          <div className="w-full lg:w-[400px] flex flex-col gap-6">
-            <div className="p-8 rounded-[2.5rem] bg-card border border-border shadow-2xl space-y-6">
-              <div className="space-y-2">
-                <label className="text-xs font-black uppercase tracking-widest text-muted-foreground ml-2">Equation</label>
-                <div className="relative">
-                  <span className="absolute left-5 top-1/2 -translate-y-1/2 text-2xl font-bold text-primary font-mono italic">y =</span>
-                  <input
-                    type="text"
-                    value={equation}
-                    onChange={(e) => setEquation(e.target.value)}
-                    placeholder="x^2 + 2x + 1"
-                    className="w-full h-16 bg-secondary/50 border border-border rounded-2xl pl-16 pr-6 text-xl font-bold font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-                  />
-                </div>
+          <div className="w-full lg:w-[450px] flex flex-col gap-6">
+            <div className="p-6 lg:p-8 rounded-[2.5rem] bg-card border border-border shadow-2xl space-y-6">
+              <div className="flex items-center justify-between">
+                 <label className="text-xs font-black uppercase tracking-widest text-muted-foreground ml-2">Equations</label>
+                 {equations.length < 5 && (
+                   <button onClick={addEquation} className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
+                     <Plus className="h-3 w-3" /> Add
+                   </button>
+                 )}
               </div>
 
-              {error ? (
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="flex items-center gap-3 p-4 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20"
-                >
-                  <AlertCircle className="h-5 w-5 shrink-0" />
-                  <p className="text-sm font-bold leading-tight">{error}</p>
-                </motion.div>
-              ) : (
-                <div className="flex items-start gap-3 p-4 rounded-xl bg-primary/5 text-primary border border-primary/10">
-                  <Info className="h-5 w-5 shrink-0 mt-0.5" />
-                  <div className="text-sm">
-                    <p className="font-bold">Pro-Tip</p>
-                    <p className="opacity-80">Use standard notation like <code className="font-mono bg-primary/10 px-1 rounded">sin(x)</code>, <code className="font-mono bg-primary/10 px-1 rounded">sqrt(x)</code>, or <code className="font-mono bg-primary/10 px-1 rounded">x^2</code>.</p>
-                  </div>
+              <div className="space-y-4">
+                <AnimatePresence>
+                  {equations.map((eq, index) => (
+                    <motion.div 
+                      key={index}
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="space-y-2"
+                    >
+                      <div className="relative flex items-center gap-2">
+                        <div 
+                          className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full shadow-md z-10" 
+                          style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                        />
+                        <input
+                          type="text"
+                          value={eq}
+                          onChange={(e) => updateEquation(index, e.target.value)}
+                          placeholder={index === 0 ? "x^2" : "sin(x)"}
+                          className="w-full h-14 bg-secondary/50 border border-border rounded-2xl pl-10 pr-10 text-lg font-bold font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                        />
+                        {equations.length > 1 && (
+                          <button 
+                            onClick={() => removeEquation(index)}
+                            className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-red-500 transition-colors"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                      {errors[index] && (
+                        <p className="text-xs text-red-500 font-bold ml-4">{errors[index]}</p>
+                      )}
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+
+              <div className="flex items-start gap-3 p-4 rounded-xl bg-primary/5 text-primary border border-primary/10">
+                <Info className="h-5 w-5 shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-bold">Pro-Tips</p>
+                  <p className="opacity-80">
+                    • Add multiple functions to compare them.<br/>
+                    • Use parametric coords for shapes like circles: <code className="font-mono bg-primary/10 px-1 rounded text-xs">3*cos(t), 3*sin(t)</code>
+                  </p>
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Quick Presets */}
             <div className="flex flex-wrap gap-2">
-              {["x^2", "sin(x)", "2^x", "1/x", "abs(x)"].map(preset => (
+              {["x^2", "sin(x)", "2^x", "4*cos(t), 4*sin(t)"].map(preset => (
                 <button
                   key={preset}
-                  onClick={() => setEquation(preset)}
+                  onClick={() => {
+                    if (equations.includes(preset)) return;
+                    const emptyIdx = equations.findIndex(e => !e.trim());
+                    if (emptyIdx !== -1) {
+                      updateEquation(emptyIdx, preset);
+                    } else if (equations.length < 5) {
+                      setEquations([...equations, preset]);
+                    }
+                  }}
                   className="px-4 py-2 rounded-full border border-border bg-card text-sm font-bold hover:bg-secondary transition-all"
                 >
                   {preset}
@@ -113,7 +193,7 @@ export default function CalculatorPage() {
 
           {/* Visualization Panel */}
           <div className="flex-1 w-full max-w-4xl">
-            <MathGraph points={points} color="#6366f1" equation={`y = ${equation}`} />
+            <MathGraph functions={graphFunctions.functions} />
           </div>
         </div>
       </div>
