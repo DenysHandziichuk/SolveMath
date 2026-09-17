@@ -1,9 +1,8 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Star, ArrowRight } from "lucide-react";
+import { ArrowRight, BookOpen } from "lucide-react";
 import { MathRenderer } from "./MathRenderer";
-import { cn } from "@/lib/utils";
 
 interface Question {
   id: string;
@@ -19,57 +18,49 @@ interface QuestionSelectorProps {
 }
 
 export function QuestionSelector({ questions, onSelect, isSolving }: QuestionSelectorProps) {
-  // Sort by difficulty (ascending)
-  const sortedQuestions = [...questions].sort((a, b) => a.difficulty - b.difficulty);
-  const easiestId = sortedQuestions[0]?.id;
-
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-8">
-      <div className="mb-6 flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-foreground">Select a Question</h2>
-        <span className="text-sm text-muted-foreground">{questions.length} detected</span>
+    <div className="w-full max-w-2xl mx-auto space-y-4">
+      <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div>
+          <h2 className="text-lg font-bold text-white tracking-tight">Detected Problems</h2>
+          <p className="text-xs text-slate-400">Select a problem to generate presentation slides</p>
+        </div>
+        <span className="text-xs font-mono font-semibold px-2.5 py-1 rounded-md bg-slate-800 text-slate-300">
+          {questions.length} {questions.length === 1 ? "problem" : "problems"}
+        </span>
       </div>
-      
-      <div className="grid gap-4">
-        {sortedQuestions.map((q, index) => (
+
+      <div className="grid gap-3.5">
+        {questions.map((q, index) => (
           <motion.div
-            key={q.id}
-            initial={{ opacity: 0, y: 20 }}
+            key={q.id || index}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.1, duration: 0.5 }}
+            transition={{ delay: index * 0.08, duration: 0.3 }}
           >
             <button
               disabled={isSolving}
               onClick={() => onSelect(q)}
-              className={cn(
-                "group relative flex w-full flex-col overflow-hidden rounded-3xl border border-border bg-card p-6 text-left transition-all hover:border-primary/50 hover:shadow-lg active:scale-[0.98] disabled:opacity-50",
-                q.id === easiestId && "border-primary/30 bg-primary/5 ring-1 ring-primary/20"
-              )}
+              className="group relative flex w-full flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-left backdrop-blur-md transition-all hover:border-blue-500/50 hover:bg-slate-900/90 active:scale-[0.99] disabled:opacity-50 shadow-md"
             >
               <div className="mb-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="rounded-full bg-secondary px-3 py-1 text-xs font-medium text-secondary-foreground uppercase tracking-wider">
-                    {q.type}
-                  </span>
-                  {q.id === easiestId && (
-                    <span className="flex items-center gap-1 rounded-full bg-primary/20 px-3 py-1 text-xs font-bold text-primary">
-                      <Star className="h-3 w-3 fill-current" />
-                      RECOMMENDED: EASIEST
-                    </span>
-                  )}
-                </div>
-                <div className="text-xs font-medium text-muted-foreground">
-                  Difficulty: {q.difficulty}/10
-                </div>
+                <span className="flex items-center gap-1.5 rounded-md bg-slate-800/90 border border-slate-700/60 px-2.5 py-1 text-[11px] font-semibold text-slate-200">
+                  <BookOpen className="h-3 w-3 text-blue-400" />
+                  {q.type || "Algebra & Functions"}
+                </span>
+                <span className="text-[11px] font-mono font-medium text-slate-400">
+                  {q.id ? (/^\d+$/.test(q.id) ? `Problem ${q.id}` : q.id) : `Problem ${index + 1}`}
+                </span>
               </div>
-              
-              <div className="text-lg font-medium leading-relaxed text-foreground mb-4">
+
+              <div className="text-base font-normal leading-relaxed text-slate-100 mb-4 pl-1">
                 <MathRenderer text={q.text} />
               </div>
-              
-              <div className="flex items-center justify-end">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-white shadow-md transition-transform group-hover:translate-x-1">
-                  <ArrowRight className="h-5 w-5" />
+
+              <div className="flex items-center justify-between pt-3 border-t border-slate-800/80 text-xs font-semibold text-blue-400 group-hover:text-blue-300">
+                <span>Build Presentation Slides</span>
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600/20 text-blue-400 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-sm">
+                  <ArrowRight className="h-4 w-4" />
                 </div>
               </div>
             </button>
@@ -79,3 +70,4 @@ export function QuestionSelector({ questions, onSelect, isSolving }: QuestionSel
     </div>
   );
 }
+
