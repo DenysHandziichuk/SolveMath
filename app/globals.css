@@ -1,19 +1,20 @@
 @import "tailwindcss";
+@import "katex/dist/katex.min.css";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fcfcfd;
+  --foreground: #0f172a;
   --card: #ffffff;
-  --card-foreground: #171717;
-  --primary: #4f46e5; /* indigo-600 */
+  --card-foreground: #0f172a;
+  --primary: #2563eb; /* professional royal blue */
   --primary-foreground: #ffffff;
-  --secondary: #f4f4f5; /* zinc-100 */
-  --secondary-foreground: #18181b; /* zinc-900 */
-  --muted: #f4f4f5;
-  --muted-foreground: #71717a;
-  --accent: #f4f4f5;
-  --accent-foreground: #18181b;
-  --border: #e4e4e7;
+  --secondary: #f1f5f9; /* slate-100 */
+  --secondary-foreground: #1e293b;
+  --muted: #f8fafc;
+  --muted-foreground: #64748b;
+  --accent: #f1f5f9;
+  --accent-foreground: #0f172a;
+  --border: #e2e8f0;
 }
 
 @theme inline {
@@ -35,28 +36,49 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #09090b;
-    --foreground: #fafafa;
-    --card: #09090b;
-    --card-foreground: #fafafa;
-    --primary: #6366f1; /* indigo-500 */
+    --background: #0b0f17;
+    --foreground: #f8fafc;
+    --card: #111726;
+    --card-foreground: #f8fafc;
+    --primary: #3b82f6;
     --primary-foreground: #ffffff;
-    --secondary: #27272a;
-    --secondary-foreground: #fafafa;
-    --muted: #27272a;
-    --muted-foreground: #a1a1aa;
-    --accent: #27272a;
-    --accent-foreground: #fafafa;
-    --border: #27272a;
+    --secondary: #1e293b;
+    --secondary-foreground: #f8fafc;
+    --muted: #1e293b;
+    --muted-foreground: #94a3b8;
+    --accent: #1e293b;
+    --accent-foreground: #f8fafc;
+    --border: #1e293b;
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* KaTeX custom sizing adjustments for crisp lecture presentation */
+.katex {
+  font-size: 1.1em;
+  text-rendering: geometricPrecision;
+}
+
+.katex-display {
+  margin: 0.8em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.2em 0;
+}
+
+/* 16:9 Presentation Stage Aspect Ratio Lock */
+.presentation-stage-lock {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  max-width: calc((100dvh - 32px) * 16 / 9);
+  max-height: calc(100dvh - 32px);
 }
 
 @layer base {
