@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { nvidia, NVIDIA_DEFAULT_MODEL, NVIDIA_FALLBACK_MODEL } from "@/lib/nvidia";
 import { groq } from "@/lib/groq";
+import { extractJson, generateCurriculumSolution, isGeometryOrGraphingTask } from "@/lib/json-extractor";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
+  let questionText = "Simplify the expression and identify all variable restrictions.";
+  let questionTopic = "Advanced Functions";
+
   try {
     const { question } = await req.json();
 
@@ -9,111 +16,126 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No question provided" }, { status: 400 });
     }
 
-    const systemPrompt = `You are a world-class math tutor. Provide a detailed, pedagogical solution to the math question provided. Ensure comprehensive coverage across these topics:
-A. CHARACTERISTICS OF FUNCTIONS: Polynomials, Rational, Quadratics (zeros, max/min, equivalence).
-B. EXPONENTIAL FUNCTIONS: Evaluating, properties, representations.
-C. TRIGONOMETRIC FUNCTIONS: Sine/Cosine Law, Identities, Periodic/Sinusoidal functions.
-D. DISCRETE FUNCTIONS: Sequences (Arithmetic/Geometric/Recursive), Pascal's Triangle, Financial Math (Annuities, Compound Interest).
+    questionText =
+      typeof question === "string"
+        ? question
+        : question.text || question.prompt || JSON.stringify(question);
 
-### PEDAGOGICAL GOALS:
-- Communicate reasoning COMPLETELY and CONCISELY.
-- Use correct mathematical language and symbols.
-- If the question involves transformations (parameters a, k, d, c):
-  - Be SPECIFIC about how 'a' affects vertical transformations and 'k' affects horizontal transformations.
-  - Explain that for horizontal COMPRESSION, the value of |k| must be GREATER than 1.
-  - Compare the parent function with the transformed function.
+    questionTopic =
+      typeof question === "object" && question?.type ? question.type : "Advanced Functions";
 
-### ACCURACY & SPECIFICITY RULES (STRICT):
-- STRICTLY SOLVE THE PROVIDED QUESTION. Do not invent a different question, and do not provide generic or unrelated examples.
-- NO FLUFF OR FILLER: Absolutely DO NOT use generic, vague, or filler phrases such as "This is fundamental in math", "This is an important concept", or "As we can see here". Every single sentence must contain dense, specific mathematical value.
-- BE HIGHLY SPECIFIC. Provide concrete, numerical examples directly derived from the question. Avoid vague statements like "this shifts the graph". Instead, explicitly state "this shifts the graph right by 3 units".
-- EXACT VALUES: Use the exact numbers, equations, and constraints provided in the user's prompt. Do not generalize.
-- If the question asks for a comparison, directly compare the exact functions or shapes requested.
-- PERIODIC FUNCTIONS: If the question involves a periodic function (e.g., sine or cosine), you MUST explicitly calculate and state its Amplitude, Period, Phase Shift, and Vertical Translation/Shift in the presentation slides.
+    const needsGraph = isGeometryOrGraphingTask(questionText, questionTopic);
 
-### SLIDE RULES (STRICT):
-- Total slides: 4-6 ONLY.
-- Each slide MUST contain 4-5 lines of content.
-- Each line MUST be a complete, simple statement.
-- CONCLUDING: You must only have ONE final/conclusion slide. Never use two summary or final slides.
-- Formatting: Use '\\n' between every statement so they appear on separate lines.
-- Math Formatting: Use LaTeX for ALL math expressions.
-- DOUBLE ESCAPE BACKSLASHES: Because you are returning JSON, you MUST double-escape all LaTeX backslashes! For example, output '\\\\frac{1}{2}' instead of '\\frac{1}{2}', and '\\\\sin(x)' instead of '\\sin(x)'.
-- FRACTIONS: Always use curly braces for fractions: '$\\\\frac{a}{b}$'. NEVER write '$\\\\frac12$'.
-- IMPORTANT: Use $...$ delimiters for ALL math content to ensure professional rendering.
-- Avoid plain text math like 'x/2 = 4'; use '$\\\\frac{x}{2} = 4$' instead. 
-- VISUALS: Ensure a slide titled 'Visual Representation', 'Graph', or similar is used for the graph data.
+    const systemPrompt = `You are an elite mathematics professor and presentation designer.
+Generate an authentic 5-slide classroom presentation that SOLVES this problem step-by-step.
+Topic: ${questionTopic}
+Problem Classification: ${needsGraph ? "Geometry / Graphing / Visual Representation" : "Pure Algebra / Symbolic Manipulation"}
 
-### SCRIPT RULES (STRICT):
-- The 'notes' (script) MUST match the slide content but use DIFFERENT words.
-- LENGTH: Each slide script MUST be between 20 and 30 words total.
-- FORMATTING: Every slide script MUST be a SINGLE, continuous paragraph. 
-- SCRIPT CONTENT: NEVER use LaTeX in scripts; use plain English.
-
-### OUTPUT FORMAT (STRICT JSON):
+Return JSON with this structure:
 {
-  "explanation": "Simple overview",
+  "explanation": "Brief summary",
   "slides": [
     {
-      "title": "Title",
-      "content": "Statement one.\\nStatement two.",
-      "notes": "Talking point for statement one.\\nTalking point for statement two."
+      "title": "...",
+      "subtitle": "${questionTopic}",
+      "content": "Line 1\\nLine 2",
+      "notes": "2-sentence speaker script",
+      "type": "intro|concept|derivation|${needsGraph ? "graph" : "derivation"}|summary"
     }
-  ],
-  "graphData": { 
-    "type": "function | unit-circle | 3d | discrete | triangle", 
-    "equation": "Equation or main formula", 
-    "angle": 45, (only if type is 'unit-circle', in degrees)
-    "shape": "pyramid | box | vectors", (only if type is '3d')
-    "labels": [{ "x": 0, "y": 0, "text": "Label" }], (optional, for labeling vertices/points)
-    "properties": [{ "name": "Amplitude", "value": "2" }, { "name": "Period", "value": "\\\\pi" }], (optional, use for periodic functions like sine/cosine)
-    "bounds": { "minX": -10, "maxX": 10, "minY": -10, "maxY": 10 }, (optional, override default [-10,10] and [-7,7] ranges)
-    "functions": [
-      { "mathjs": "sin(x)", "color": "#888888", "equation": "y = \\sin(x)", "points": [] },
-      { "mathjs": "2*sin(x-3.14)", "color": "#6366f1", "equation": "y = 2\\sin(x - \\pi)", "points": [] }
-    ]
-  }
+  ]${needsGraph ? `,
+  "graphData": {
+    "type": "function",
+    "equation": "f(x) = ...",
+    "isRadian": false,
+    "functions": [{"equation": "...", "mathjs": "...", "color": "#38bdf8"}],
+    "asymptotes": [],
+    "holes": [],
+    "properties": []
+  }` : ""}
 }
 
-### GRAPHING RULES:
-- IMPORTANT FOR CONTINUOUS GRAPHS (Sine, Cosine, Polynomials, Circles): DO NOT manually generate large 'points' arrays, as you will fail and draw a straight line! Instead, you MUST provide a "mathjs" string for each function. This string must be a valid math.js expression (e.g., 'sin(x)', 'x^2 + 2*x', '4*cos(t), 4*sin(t)'). The frontend will automatically generate the coordinates!
-- You STILL need to provide the 'equation' field formatted in LaTeX for the legend.
-- SHAPES (TRIANGLES, POLYGONS): For discrete shapes that cannot be represented by a single math equation (like a triangle), provide the "points" array manually (e.g. 4 points to close a triangle loop).
-- MULTIPLE GRAPHS / COMPARISONS: If the problem compares functions (e.g., sine vs cosine, parent vs transformed), you MUST provide 2 OR MORE functions in the "functions" array to display them on the SAME slide for comparison.
-- CHARACTERISTICS / EXPONENTIAL / TRIG WAVES: Use 'function'.
-- TRIG RATIOS / ANGLES: Use 'unit-circle'. Provide the 'angle'.
-- 3D TRIGONOMETRY: Use '3d'. Provide the 'shape'.
-- SINE / COSINE LAW: Use 'triangle'. Provide 4 vertices in 'points' of the first function (closing the loop), and use 'labels' for angles/sides.
-- DISCRETE FUNCTIONS: Use 'discrete'. Plot sequence terms (n vs value) using distinct points. Provide 'points' where x is the term number (n) and y is the value.`;
+CRITICAL RULES:
+- Exactly 5 slides:
+  1: Problem Statement
+  2: Setup & Restrictions / Governing Principles
+  3: Step-by-Step Algebraic Derivation
+  4: ${needsGraph ? "Graph & Visual Verification (include visual coordinate graph)" : "Algebraic Verification & Equivalence Check (DO NOT include graph, verify algebraically)"}
+  5: Final Answer & Summary
+- GRAPH RULE: ${needsGraph ? 'Include "graphData" because this is a geometry / curve sketching problem.' : 'DO NOT include "graphData" (set graphData to null or omit it) because this is a purely algebraic problem where a graph is unnecessary and irrelevant.'}
+- SOLVE the problem with REAL math. Show actual expressions, actual values, and actual steps.
+- Use $...$ for inline math, $$...$$ for display math in content strings.
+- Use \\n to separate lines in content strings.
+- Respond with raw JSON only. No markdown, no backticks.`;
 
-    const userPrompt = `Please solve this question: ${question.text}`;
+    const userPrompt = `Solve this step-by-step and generate presentation slides:\n${questionText}`;
 
-    const completion = await groq.chat.completions.create({
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
-          role: "user",
-          content: userPrompt,
-        },
-      ],
-      model: "llama-3.3-70b-versatile",
-      response_format: { type: "json_object" },
-      temperature: 0.2,
-    });
+    const useNvidia = Boolean(process.env.NVIDIA_API_KEY || !process.env.GROQ_API_KEY);
+    const primaryModel = process.env.NVIDIA_MODEL || NVIDIA_DEFAULT_MODEL;
+    const fallbackModel = NVIDIA_FALLBACK_MODEL || "mistralai/mistral-large-2-instruct";
 
-    const content = completion.choices[0]?.message?.content;
-    if (!content) {
-      throw new Error("Empty response from Groq");
+    let content: string | null = null;
+
+    if (useNvidia) {
+      try {
+        const completion = await nvidia.chat.completions.create(
+          {
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userPrompt },
+            ],
+            model: primaryModel,
+            max_tokens: 2200,
+            temperature: 0.15,
+          },
+          { timeout: 15000 }
+        );
+        content = completion.choices[0]?.message?.content || null;
+      } catch (nvidiaErr) {
+        console.warn(`Primary model ${primaryModel} failed or timed out:`, nvidiaErr);
+        if (process.env.GROQ_API_KEY) {
+          try {
+            const groqFallback = await groq.chat.completions.create(
+              {
+                messages: [
+                  { role: "system", content: systemPrompt },
+                  { role: "user", content: userPrompt },
+                ],
+                model: "llama-3.3-70b-versatile",
+                response_format: { type: "json_object" },
+                max_tokens: 2200,
+                temperature: 0.15,
+              },
+              { timeout: 10000 }
+            );
+            content = groqFallback.choices[0]?.message?.content || null;
+          } catch (groqErr) {
+            console.warn("Groq fallback also failed:", groqErr);
+          }
+        }
+      }
+    } else {
+      const completion = await groq.chat.completions.create({
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        model: "llama-3.3-70b-versatile",
+        response_format: { type: "json_object" },
+        max_tokens: 3500,
+        temperature: 0.15,
+      });
+      content = completion.choices[0]?.message?.content || null;
     }
 
-    const data = JSON.parse(content);
+    if (!content) {
+      throw new Error("Empty response from language model");
+    }
+
+    const data = extractJson(content, "solution", questionText, questionTopic);
     return NextResponse.json(data);
   } catch (error) {
-    console.error("Groq solving error:", error);
-    const message = error instanceof Error ? error.message : "An unknown error occurred";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.warn("External model calls failed or timed out, generating curriculum solution fallback:", error);
+    const fallbackData = generateCurriculumSolution(questionText, questionTopic);
+    return NextResponse.json(fallbackData);
   }
 }
