@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SolveMath AI - The Ultimate Presentation Engine",
-  description: "Upload math screenshots and get classroom-ready presentations instantly.",
+  title: "SolveMath",
+  description: "Math presentation studio and graphing calculator.",
 };
 
 export default function RootLayout({
