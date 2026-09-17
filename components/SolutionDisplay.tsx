@@ -1,8 +1,20 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, LineChart, ChevronLeft, ChevronRight, RotateCcw, Copy, Check, Presentation, Sparkles } from "lucide-react";
-import { useState, useEffect, useCallback } from "react";
+import {
+  Mic,
+  ChevronLeft,
+  ChevronRight,
+  RotateCcw,
+  Copy,
+  Check,
+  Presentation,
+  Maximize2,
+  Minimize2,
+  Clock,
+  Palette,
+} from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { MathRenderer } from "./MathRenderer";
 import { MathGraph } from "./MathGraph";
 import { ScreenRecorder } from "./ScreenRecorder";
@@ -10,12 +22,15 @@ import { cn } from "@/lib/utils";
 
 interface Slide {
   title: string;
+  subtitle?: string;
   content: string;
   notes: string;
+  type?: string;
 }
 
 interface GraphFunction {
-  points: { x: number; y: number }[];
+  points?: { x: number; y: number }[];
+  mathjs?: string;
   color?: string;
   equation?: string;
 }
@@ -26,8 +41,11 @@ interface Solution {
   graphData?: {
     type: string;
     equation: string;
+    isRadian?: boolean;
     points?: { x: number; y: number }[];
     functions?: GraphFunction[];
+    asymptotes?: { type: "vertical" | "horizontal" | "oblique"; value: number | string; label?: string }[];
+    holes?: { x: number; y: number }[];
     properties?: { name: string; value: string }[];
     bounds?: { minX: number; maxX: number; minY: number; maxY: number };
   };
@@ -39,78 +57,51 @@ interface SolutionDisplayProps {
 }
 
 const THEMES = {
-  studio: {
-    name: "Studio",
-    bg: "bg-zinc-900",
-    slideBg: "bg-zinc-900",
+  slate: {
+    name: "Oxford Slate",
+    bg: "bg-[#090d16]",
+    slideBg: "bg-[#0b0f19]",
+    slideBorder: "border-slate-800",
     text: "text-white",
-    subtext: "text-zinc-300",
-    accent: "#6366f1",
-    glow: "from-indigo-500/10 via-transparent to-indigo-500/10",
-  },
-  whiteboard: {
-    name: "Whiteboard",
-    bg: "bg-zinc-100",
-    slideBg: "bg-white",
-    text: "text-zinc-900",
-    subtext: "text-zinc-600",
-    accent: "#2563eb",
-    glow: "from-blue-500/5 via-transparent to-blue-500/5",
-  },
-  blueprint: {
-    name: "Blueprint",
-    bg: "bg-blue-900",
-    slideBg: "bg-blue-950",
-    text: "text-blue-50",
-    subtext: "text-blue-300/80",
-    accent: "#38bdf8",
-    glow: "from-sky-400/20 via-transparent to-sky-400/20",
+    subtext: "text-slate-300",
+    accent: "#3b82f6",
   },
   chalkboard: {
     name: "Chalkboard",
-    bg: "bg-emerald-950",
-    slideBg: "bg-emerald-900",
-    text: "text-zinc-50",
-    subtext: "text-zinc-200/70",
-    accent: "#fde047",
-    glow: "from-white/5 via-transparent to-white/5",
+    bg: "bg-[#021f18]",
+    slideBg: "bg-[#03261e]",
+    slideBorder: "border-emerald-900/60",
+    text: "text-[#fef3c7]",
+    subtext: "text-[#fde68a]/90",
+    accent: "#f59e0b",
   },
-  midnight: {
-    name: "Midnight",
-    bg: "bg-slate-950",
-    slideBg: "bg-black",
-    text: "text-purple-50",
-    subtext: "text-purple-300/70",
-    accent: "#a855f7",
-    glow: "from-purple-500/20 via-transparent to-purple-500/20",
+  whiteboard: {
+    name: "Whiteboard",
+    bg: "bg-[#f1f5f9]",
+    slideBg: "bg-[#ffffff]",
+    slideBorder: "border-slate-200",
+    text: "text-slate-900",
+    subtext: "text-slate-700",
+    accent: "#2563eb",
   },
-  sunset: {
-    name: "Sunset",
-    bg: "bg-orange-950",
-    slideBg: "bg-[#1a0f0a]",
-    text: "text-orange-50",
-    subtext: "text-orange-200/70",
-    accent: "#f97316",
-    glow: "from-orange-500/15 via-transparent to-orange-500/15",
-  },
-  matrix: {
-    name: "Matrix",
-    bg: "bg-black",
-    slideBg: "bg-black",
-    text: "text-green-500",
-    subtext: "text-green-700",
-    accent: "#22c55e",
-    glow: "from-green-500/10 via-transparent to-green-500/10",
+  navy: {
+    name: "Cambridge Navy",
+    bg: "bg-[#050b14]",
+    slideBg: "bg-[#081220]",
+    slideBorder: "border-blue-900/40",
+    text: "text-blue-50",
+    subtext: "text-blue-200/90",
+    accent: "#38bdf8",
   },
   paper: {
-    name: "Paper",
-    bg: "bg-[#f4ead5]",
-    slideBg: "bg-[#fdf6e3]",
-    text: "text-[#586e75]",
-    subtext: "text-[#93a1a1]",
-    accent: "#cb4b16",
-    glow: "from-orange-900/5 via-transparent to-orange-900/5",
-  }
+    name: "Academic Paper",
+    bg: "bg-[#ece9df]",
+    slideBg: "bg-[#f7f5ed]",
+    slideBorder: "border-[#dfdcce]",
+    text: "text-[#1c1917]",
+    subtext: "text-[#44403c]",
+    accent: "#b91c1c",
+  },
 };
 
 type ThemeKey = keyof typeof THEMES;
@@ -118,15 +109,93 @@ type ThemeKey = keyof typeof THEMES;
 export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [copied, setCopied] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(400); 
+  const [sidebarWidth, setSidebarWidth] = useState(420);
   const [isResizing, setIsResizing] = useState(false);
-  const [theme, setTheme] = useState<ThemeKey>("studio");
+  const [theme, setTheme] = useState<ThemeKey>("slate");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [timerSeconds, setTimerSeconds] = useState(0);
+  const [isTimerRunning, setIsTimerRunning] = useState(true);
+
+  const presentationAreaRef = useRef<HTMLDivElement>(null);
 
   const activeTheme = THEMES[theme];
+  const defaultSlide: Slide = {
+    title: "Problem Statement",
+    subtitle: "Overview",
+    content: solution.explanation || "Problem Analysis and Resolution",
+    notes: "Review the problem formulation and derived results.",
+    type: "intro",
+  };
+  const currentSlide =
+    (solution.slides && solution.slides[currentSlideIndex]) ||
+    solution.slides?.[0] ||
+    defaultSlide;
+  const hasValidGraph = Boolean(
+    solution.graphData &&
+      (solution.graphData.functions?.length || solution.graphData.points?.length)
+  );
 
-  const currentSlide = solution.slides[currentSlideIndex];
-  const isGraphSlide = currentSlide.title.toLowerCase().includes("graph") || currentSlideIndex === 4;
+  const isGraphSlide =
+    hasValidGraph &&
+    (currentSlide.type === "graph" ||
+      (currentSlide.title && currentSlide.title.toLowerCase().includes("graph")) ||
+      (currentSlide.title && currentSlide.title.toLowerCase().includes("visual")) ||
+      (currentSlide.title && currentSlide.title.toLowerCase().includes("geometric")));
 
+  // Presentation Timer
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    if (isTimerRunning) {
+      interval = setInterval(() => {
+        setTimerSeconds((prev) => prev + 1);
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isTimerRunning]);
+
+  const formatTimer = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  };
+
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      presentationAreaRef.current?.requestFullscreen?.().catch(() => {});
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+      setIsFullscreen(false);
+    }
+  }, []);
+
+  // Keyboard navigation (Arrow keys, Spacebar, F for fullscreen)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") {
+        e.preventDefault();
+        setCurrentSlideIndex((prev) => Math.min(solution.slides.length - 1, prev + 1));
+      } else if (e.key === "ArrowLeft" || e.key === "PageUp") {
+        e.preventDefault();
+        setCurrentSlideIndex((prev) => Math.max(0, prev - 1));
+      } else if (e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        toggleFullscreen();
+      } else if (e.key === "Escape" && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [solution.slides.length, isFullscreen, toggleFullscreen]);
+
+
+  // Resizable sidebar handlers
   const startResizing = useCallback((e: React.MouseEvent) => {
     setIsResizing(true);
     e.preventDefault();
@@ -136,16 +205,19 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
     setIsResizing(false);
   }, []);
 
-  const resize = useCallback((e: MouseEvent) => {
-    if (isResizing) {
-      const newWidth = window.innerWidth - e.clientX;
-      const minWidth = 400;
-      const maxWidth = window.innerWidth * 0.9;
-      if (newWidth >= minWidth && newWidth <= maxWidth) {
-        setSidebarWidth(newWidth);
+  const resize = useCallback(
+    (e: MouseEvent) => {
+      if (isResizing) {
+        const newWidth = window.innerWidth - e.clientX;
+        const minWidth = 380;
+        const maxWidth = window.innerWidth * 0.85;
+        if (newWidth >= minWidth && newWidth <= maxWidth) {
+          setSidebarWidth(newWidth);
+        }
       }
-    }
-  }, [isResizing]);
+    },
+    [isResizing]
+  );
 
   useEffect(() => {
     if (isResizing) {
@@ -174,204 +246,282 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
   };
 
   const copyNote = () => {
+    if (!currentSlide) return;
     navigator.clipboard.writeText(currentSlide.notes);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <div className={cn("fixed inset-0 z-50 flex h-[100dvh] w-screen overflow-hidden animate-in fade-in duration-500", activeTheme.bg)}>
-      {/* LEFT PANEL: The Presentation */}
-      <div 
+    <div className={cn("fixed inset-0 z-50 flex h-[100dvh] w-screen overflow-hidden", activeTheme.bg)}>
+      {/* ========================================================================= */}
+      {/* LEFT PANEL: The 16:9 Presentation Stage (Strict 1920x1080 Aspect Ratio) */}
+      {/* ========================================================================= */}
+      <div
+        ref={presentationAreaRef}
         id="presentation-area"
-        className={cn("relative hidden lg:flex flex-col items-center justify-center transition-colors duration-500", activeTheme.slideBg)}
-        style={{ flex: 1 }}
+        className={cn(
+          "relative flex flex-1 items-center justify-center p-3 sm:p-6 overflow-hidden select-none transition-colors duration-300",
+          activeTheme.bg
+        )}
       >
-        <div className={cn("absolute inset-0 bg-gradient-to-br pointer-events-none transition-opacity duration-500", activeTheme.glow)} />
-        
-        <div className="relative z-10 w-full max-w-5xl px-12 flex flex-col items-center text-center">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={`${theme}-${currentSlideIndex}`}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.4 }}
-              className="w-full"
-            >
-              <h1 className={cn("mb-12 text-6xl md:text-7xl font-black tracking-tight drop-shadow-2xl transition-colors duration-500", activeTheme.text)}>
-                {currentSlide.title}
-              </h1>
-              {/* Slide Content */}
-              <div className={cn(
-                "text-2xl md:text-3xl lg:text-4xl font-bold leading-tight transition-colors duration-500",
-                activeTheme.subtext,
-                isGraphSlide && solution.graphData?.points && "lg:text-xl mb-6"
-              )}>
-                <MathRenderer text={currentSlide.content} />
-              </div>
-{/* The Animated Graph */}
-{isGraphSlide && solution.graphData && (solution.graphData.points || solution.graphData.functions) && (
-   <div className="mt-4 flex justify-center w-full max-w-2xl mx-auto">
-    <MathGraph 
-      points={solution.graphData.points} 
-      functions={solution.graphData.functions}
-      properties={solution.graphData.properties}
-      bounds={solution.graphData.bounds}
-      color={activeTheme.accent} 
-      equation={solution.graphData.equation}
-    />
-   </div>
-)}
-            </motion.div>
-          </AnimatePresence>
-        </div>
+        {/* PRESENTATION STAGE: Hard-locked to 16:9 aspect-video */}
+        <div
+          id="presentation-slide-stage"
+          className={cn(
+            "relative aspect-video w-full max-w-[calc((100dvh-48px)*16/9)] max-h-[calc(100dvh-48px)] flex flex-col justify-between p-5 sm:p-7 lg:p-8 rounded-2xl border shadow-2xl overflow-hidden transition-all duration-300",
+            activeTheme.slideBg,
+            activeTheme.slideBorder
+          )}
+        >
+          {/* Slide Header */}
+          <div className="flex items-center justify-between pb-2.5 border-b border-white/5 shrink-0">
+            <div className="text-xs font-medium text-zinc-400 truncate max-w-[70%]">
+              {currentSlide.subtitle ? (
+                <MathRenderer text={currentSlide.subtitle} inline />
+              ) : (
+                <span>Slide {currentSlideIndex + 1}</span>
+              )}
+            </div>
 
-        <div className="absolute bottom-10 right-12 flex items-center gap-3 text-zinc-500 font-mono text-sm tracking-widest">
-          <span style={{ color: activeTheme.accent }} className="font-bold transition-colors duration-500">
-            {String(currentSlideIndex + 1).padStart(2, '0')}
-          </span>
-          <div className="h-4 w-[1px] bg-white/10" />
-          <span>{String(solution.slides.length).padStart(2, '0')}</span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-mono text-zinc-400">
+                {String(currentSlideIndex + 1).padStart(2, "0")} / {String(solution.slides.length).padStart(2, "0")}
+              </span>
+
+              <button
+                onClick={toggleFullscreen}
+                title="Fullscreen (F)"
+                className="p-1 rounded text-zinc-400 hover:text-white transition-colors"
+              >
+                {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+
+          {/* Slide Body: Title + Content (+ Graph if applicable) */}
+          <div className="flex-1 flex flex-col justify-start my-3 overflow-hidden min-h-0">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={`${theme}-${currentSlideIndex}`}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.2 }}
+                className="w-full flex flex-col flex-1 justify-start h-full overflow-hidden min-h-0"
+              >
+                <h1 className={cn("text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight mb-3 shrink-0", activeTheme.text)}>
+                  <MathRenderer text={currentSlide.title} inline />
+                </h1>
+
+                {/* Split view when graph slide */}
+                {isGraphSlide && solution.graphData ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-center flex-1 min-h-0 overflow-hidden">
+                    <div className={cn("text-sm sm:text-base lg:text-lg font-normal leading-relaxed overflow-y-auto max-h-full pr-2", activeTheme.subtext)}>
+                      <MathRenderer text={currentSlide.content} />
+                    </div>
+                    <div className="flex items-center justify-center h-full max-h-full overflow-hidden">
+                      <MathGraph
+                        functions={solution.graphData.functions}
+                        points={solution.graphData.points}
+                        properties={solution.graphData.properties}
+                        bounds={solution.graphData.bounds}
+                        asymptotes={solution.graphData.asymptotes}
+                        holes={solution.graphData.holes}
+                        isRadian={solution.graphData.isRadian}
+                        color={activeTheme.accent}
+                        equation={solution.graphData.equation}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className={cn("text-base sm:text-lg lg:text-xl font-normal leading-relaxed max-w-4xl flex-1 overflow-y-auto pr-2", activeTheme.subtext)}>
+                    <MathRenderer text={currentSlide.content} />
+                  </div>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          {/* Slide Footer: Presentation progress ticks */}
+          <div className="flex items-center gap-1.5 pt-3 border-t border-white/5">
+            {solution.slides.map((_, idx) => (
+              <button
+                key={idx}
+                onClick={() => setCurrentSlideIndex(idx)}
+                title={`Jump to slide ${idx + 1}`}
+                className={cn(
+                  "h-1.5 flex-1 rounded-full transition-all duration-300",
+                  idx === currentSlideIndex ? "bg-blue-500 shadow-sm" : "bg-white/10 hover:bg-white/20"
+                )}
+              />
+            ))}
+          </div>
         </div>
       </div>
 
+      {/* Resize Handle */}
       <div
         onMouseDown={startResizing}
         className={cn(
-          "hidden lg:block w-1.5 h-full cursor-col-resize hover:bg-primary transition-colors z-30 bg-border/20",
-          isResizing && "bg-primary w-2"
+          "hidden lg:block w-1.5 h-full cursor-col-resize hover:bg-blue-500 transition-colors z-30 bg-slate-800/40",
+          isResizing && "bg-blue-500 w-2"
         )}
       />
 
-      {/* RIGHT PANEL: Speaker Dashboard */}
-      <div 
-        className="flex flex-col border-l border-border bg-card shadow-2xl z-20 w-full lg:w-auto"
-        style={{ 
-          width: typeof window !== 'undefined' && window.innerWidth >= 1024 ? `${sidebarWidth}px` : '100%',
-          minWidth: typeof window !== 'undefined' && window.innerWidth >= 1024 ? '400px' : 'auto'
+      {/* ========================================================================= */}
+      {/* RIGHT PANEL: Presenter Studio & Controls */}
+      {/* ========================================================================= */}
+      <div
+        className="flex flex-col border-l border-slate-800 bg-[#0f172a] shadow-2xl z-20 w-full lg:w-auto text-slate-100"
+        style={{
+          width: typeof window !== "undefined" && window.innerWidth >= 1024 ? `${sidebarWidth}px` : "100%",
+          minWidth: typeof window !== "undefined" && window.innerWidth >= 1024 ? "380px" : "auto",
         }}
       >
-        <div className="p-4 lg:p-8 border-b border-border flex items-center justify-between bg-secondary/20 pt-[env(safe-area-inset-top,1rem)]">
-          <div className="flex items-center gap-3">
-            <div className="p-2 lg:p-2.5 rounded-xl bg-primary shadow-lg text-white">
-              <Presentation className="h-4 w-4 lg:h-5 lg:h-5" />
+        {/* Dashboard Header with Recorder and Reset */}
+        <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-blue-600 shadow-md text-white">
+              <Presentation className="h-4 w-4" />
             </div>
             <div>
-              <h2 className="text-sm lg:text-lg font-bold tracking-tight text-foreground">Speaker View</h2>
+              <h2 className="text-sm font-bold tracking-tight text-white">Presenter Studio</h2>
+              <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                <Clock className="h-3 w-3 text-slate-500" />
+                <span className="font-mono">{formatTimer(timerSeconds)}</span>
+                <button
+                  onClick={() => setIsTimerRunning(!isTimerRunning)}
+                  className="hover:text-slate-200 underline text-[10px]"
+                >
+                  {isTimerRunning ? "Pause" : "Resume"}
+                </button>
+              </div>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-2">
             <ScreenRecorder />
-            <div className="h-6 w-[1px] bg-border mx-1 lg:mx-2" />
             <button
               onClick={onReset}
-              className="p-2 lg:p-2.5 rounded-full hover:bg-secondary text-muted-foreground transition-all active:scale-95 flex items-center justify-center bg-zinc-100 dark:bg-zinc-800 lg:bg-transparent"
+              title="Return to Lesson Selector"
+              className="p-2 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
             >
-              <RotateCcw className="h-4 w-4 lg:h-5 lg:h-5" />
+              <RotateCcw className="h-4 w-4" />
             </button>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 lg:p-10 space-y-8 custom-scrollbar">
-          {/* Theme Selector */}
-          <section className="space-y-4">
-            <div className="flex items-center gap-2 text-zinc-500">
-              <Sparkles className="h-4 w-4" />
-              <h3 className="text-[10px] font-black uppercase tracking-[0.2em]">Themes</h3>
+        {/* Scrollable Dashboard Body */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5">
+          {/* Lecture Theme Palette Selection */}
+          <section className="space-y-2">
+            <div className="flex items-center gap-2 text-slate-400">
+              <Palette className="h-3.5 w-3.5 text-blue-400" />
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Lecture Theme</h3>
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
               {(Object.keys(THEMES) as ThemeKey[]).map((t) => (
                 <button
                   key={t}
                   onClick={() => setTheme(t)}
                   className={cn(
-                    "flex items-center gap-3 p-3 rounded-2xl border transition-all hover:scale-[1.02] active:scale-95",
-                    theme === t ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border bg-secondary/30"
+                    "flex items-center gap-2 p-2 rounded-xl border text-left transition-all",
+                    theme === t
+                      ? "border-blue-500 bg-blue-500/15 ring-1 ring-blue-500 text-white font-semibold"
+                      : "border-slate-800 bg-slate-900/60 hover:border-slate-700 text-slate-300"
                   )}
                 >
-                  <div className={cn("h-6 w-6 rounded-full border border-white/10 shadow-sm", THEMES[t].slideBg)} />
-                  <span className="text-xs font-bold">{THEMES[t].name}</span>
+                  <div className={cn("h-3.5 w-3.5 rounded-full border border-white/20 shrink-0", THEMES[t].slideBg)} />
+                  <span className="text-xs truncate">{THEMES[t].name}</span>
                 </button>
               ))}
             </div>
           </section>
 
-          <section className="space-y-4">
+          {/* Teacher / Speaker Script Notes */}
+          <section className="space-y-2">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5 text-primary">
-                <Mic className="h-4 w-4 lg:h-5 lg:h-5" />
-                <h3 className="text-[10px] lg:text-xs font-black uppercase tracking-[0.2em]">Script</h3>
+              <div className="flex items-center gap-2 text-blue-400">
+                <Mic className="h-3.5 w-3.5" />
+                <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Spoken Lesson Script</h3>
+                {currentSlide.notes && (
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                    ~{Math.max(4, Math.round(currentSlide.notes.trim().split(/\s+/).length / 2.5))}s read
+                  </span>
+                )}
               </div>
-              <button onClick={copyNote} className="p-2 rounded-lg text-muted-foreground hover:text-primary transition-all">
-                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              <button
+                onClick={copyNote}
+                title="Copy script"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-blue-400 transition-colors"
+              >
+                {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
               </button>
             </div>
-            
+
             <AnimatePresence mode="wait">
               <motion.div
                 key={`${theme}-${currentSlideIndex}`}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="text-base lg:text-xl leading-relaxed text-foreground/80 italic font-medium bg-secondary/30 p-6 lg:p-8 rounded-[1.5rem] lg:rounded-[2rem] border border-border/50"
+                className="text-sm sm:text-base leading-relaxed text-slate-200 bg-slate-900/80 p-4 rounded-xl border border-slate-800 font-normal select-text shadow-sm"
               >
-                <MathRenderer text={currentSlide.notes} className="gap-3" />
+                <MathRenderer text={currentSlide.notes} />
               </motion.div>
             </AnimatePresence>
           </section>
 
-          {solution.graphData && solution.graphData.equation && (
-            <section className="space-y-4">
-              <div className="flex items-center gap-2.5 text-zinc-500">
-                <LineChart className="h-4 w-4 lg:h-5 lg:h-5" />
-                <h3 className="text-[10px] lg:text-xs font-black uppercase tracking-[0.2em]">Graph Logic</h3>
-              </div>
-              <div className="p-4 lg:p-6 rounded-[1.5rem] lg:rounded-[2rem] bg-zinc-950 text-white border border-white/5">
-                <p className="text-[10px] font-bold text-zinc-500 uppercase mb-2">{solution.graphData.type}</p>
-                <div className="text-xl lg:text-2xl font-black tracking-tighter text-center py-2">
-                  <MathRenderer text={solution.graphData.equation} />
-                </div>
-              </div>
-            </section>
-          )}
+          {/* Slide Deck Navigator */}
+          <section className="space-y-2">
+            <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Slide Navigator</h3>
+            <div className="space-y-1">
+              {solution.slides.map((s, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setCurrentSlideIndex(idx)}
+                  className={cn(
+                    "w-full flex items-center justify-between p-2.5 rounded-xl border text-left text-xs transition-all",
+                    idx === currentSlideIndex
+                      ? "border-blue-500/60 bg-blue-500/15 text-white font-semibold shadow-sm"
+                      : "border-slate-800/60 bg-slate-900/40 text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
+                  )}
+                >
+                  <span className="truncate pr-2">{idx + 1}. <MathRenderer text={s.title} inline /></span>
+                  <span className="text-[10px] uppercase text-slate-500 font-mono shrink-0">{s.type || "slide"}</span>
+                </button>
+              ))}
+            </div>
+          </section>
         </div>
 
-        <div className="p-6 lg:p-8 border-t border-border bg-secondary/10 flex flex-col gap-4 lg:gap-6 pb-[env(safe-area-inset-bottom,1.5rem)]">
-          <div className="flex items-center justify-between gap-3 lg:gap-4">
+        {/* Navigation Footer */}
+        <div className="p-4 sm:p-5 border-t border-slate-800 bg-slate-900/40 flex flex-col gap-2.5">
+          <div className="flex items-center gap-2.5">
             <button
               onClick={prevSlide}
               disabled={currentSlideIndex === 0}
-              className="flex-1 flex items-center justify-center gap-2 py-4 lg:py-5 rounded-[1.25rem] lg:rounded-[1.5rem] bg-card border border-border font-bold transition-all hover:bg-secondary disabled:opacity-20 active:scale-95 text-sm lg:text-base"
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 font-semibold text-xs transition-all hover:bg-slate-700 disabled:opacity-30 active:scale-95 shadow-sm"
             >
-              <ChevronLeft className="h-5 w-5 lg:h-6 lg:h-6" />
-              <span>Back</span>
+              <ChevronLeft className="h-4 w-4" />
+              <span>Previous</span>
             </button>
             <button
               onClick={nextSlide}
               disabled={currentSlideIndex === solution.slides.length - 1}
-              className="flex-1 flex items-center justify-center gap-2 py-4 lg:py-5 rounded-[1.25rem] lg:rounded-[1.5rem] bg-primary text-white font-bold shadow-xl shadow-primary/20 transition-all hover:brightness-110 disabled:opacity-20 active:scale-95 text-sm lg:text-base"
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-blue-600 text-white font-semibold text-xs shadow-md transition-all hover:bg-blue-500 disabled:opacity-30 active:scale-95"
             >
               <span>Next</span>
-              <ChevronRight className="h-5 w-5 lg:h-6 lg:h-6" />
+              <ChevronRight className="h-4 w-4" />
             </button>
           </div>
-          
-          <div className="flex gap-1.5 lg:gap-2">
-            {solution.slides.map((_, idx) => (
-              <div key={idx} className={cn("h-1.5 lg:h-2 flex-1 rounded-full transition-all duration-500", idx === currentSlideIndex ? "bg-primary" : "bg-border")} />
-            ))}
-          </div>
+          <p className="text-[10px] text-center text-slate-500">
+            Keyboard Shortcuts: <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300">Space</kbd> / <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300">→</kbd> Next • <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300">F</kbd> Fullscreen
+          </p>
         </div>
       </div>
-
-      <style jsx global>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 10px; }
-        .dark .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); }
-      `}</style>
     </div>
   );
 }
+
