@@ -13,6 +13,8 @@ import {
   Minimize2,
   Clock,
   Palette,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { MathRenderer } from "./MathRenderer";
@@ -138,6 +140,8 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
   const isGraphSlide =
     hasValidGraph &&
     (currentSlide.type === "graph" ||
+      currentSlide.type === "evidence" ||
+      (currentSlide.title && currentSlide.title.toLowerCase().includes("evidence")) ||
       (currentSlide.title && currentSlide.title.toLowerCase().includes("graph")) ||
       (currentSlide.title && currentSlide.title.toLowerCase().includes("visual")) ||
       (currentSlide.title && currentSlide.title.toLowerCase().includes("geometric")));
@@ -244,6 +248,33 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
       setCurrentSlideIndex(currentSlideIndex - 1);
     }
   };
+
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  const toggleSpeak = () => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+    } else {
+      window.speechSynthesis.cancel();
+      const textToSpeak = currentSlide?.notes || "";
+      if (!textToSpeak) return;
+      const utterance = new SpeechSynthesisUtterance(textToSpeak);
+      utterance.rate = 1.0;
+      utterance.onend = () => setIsSpeaking(false);
+      utterance.onerror = () => setIsSpeaking(false);
+      setIsSpeaking(true);
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+    }
+  }, [currentSlideIndex]);
 
   const copyNote = () => {
     if (!currentSlide) return;
@@ -443,7 +474,7 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
           <section className="space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-blue-400">
-                <Mic className="h-3.5 w-3.5" />
+                <Volume2 className="h-3.5 w-3.5" />
                 <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Spoken Lesson Script</h3>
                 {currentSlide.notes && (
                   <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
@@ -451,13 +482,27 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
                   </span>
                 )}
               </div>
-              <button
-                onClick={copyNote}
-                title="Copy script"
-                className="p-1.5 rounded-lg text-slate-400 hover:text-blue-400 transition-colors"
-              >
-                {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={toggleSpeak}
+                  title={isSpeaking ? "Stop reading aloud" : "Read script aloud (Text-to-Speech)"}
+                  className={cn(
+                    "p-1.5 rounded-lg transition-colors flex items-center gap-1",
+                    isSpeaking
+                      ? "bg-blue-500/20 text-blue-400 border border-blue-500/30 animate-pulse"
+                      : "text-slate-400 hover:text-blue-400"
+                  )}
+                >
+                  {isSpeaking ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                </button>
+                <button
+                  onClick={copyNote}
+                  title="Copy script"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-blue-400 transition-colors"
+                >
+                  {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                </button>
+              </div>
             </div>
 
             <AnimatePresence mode="wait">
@@ -482,14 +527,23 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
                   key={idx}
                   onClick={() => setCurrentSlideIndex(idx)}
                   className={cn(
-                    "w-full flex items-center justify-between p-2.5 rounded-xl border text-left text-xs transition-all",
+                    "w-full flex items-center justify-between p-2.5 rounded-xl border text-left text-xs transition-all gap-2",
                     idx === currentSlideIndex
                       ? "border-blue-500/60 bg-blue-500/15 text-white font-semibold shadow-sm"
                       : "border-slate-800/60 bg-slate-900/40 text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
                   )}
                 >
-                  <span className="truncate pr-2">{idx + 1}. <MathRenderer text={s.title} inline /></span>
-                  <span className="text-[10px] uppercase text-slate-500 font-mono shrink-0">{s.type || "slide"}</span>
+                  <div className="flex items-center gap-2 truncate min-w-0">
+                    <span className="text-[11px] font-mono text-slate-400 font-semibold shrink-0">
+                      {String(idx + 1).padStart(2, "0")}
+                    </span>
+                    <span className="truncate text-xs font-medium text-slate-200">
+                      {s.title}
+                    </span>
+                  </div>
+                  <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-400 font-mono shrink-0">
+                    {s.type === "intro" ? "Problem" : s.type === "solution" ? "Solution" : s.type === "graph" || s.type === "evidence" ? "Evidence" : "Conclusion"}
+                  </span>
                 </button>
               ))}
             </div>
