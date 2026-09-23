@@ -112,7 +112,14 @@ export function ScreenRecorder() {
   // Helper to proactively request and test microphone permission
   const requestMicPermission = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
       stream.getTracks().forEach((t) => t.stop());
       setMicPermission("granted");
       setWithAudio(true);
@@ -137,14 +144,17 @@ export function ScreenRecorder() {
       return;
     }
 
-    if (!withAudio) {
-      setWithAudio(true);
-      if (micPermission !== "granted") {
-        await requestMicPermission();
+    // If permission has not yet been granted, request access directly
+    if (micPermission !== "granted") {
+      const granted = await requestMicPermission();
+      if (granted) {
+        setWithAudio(true);
       }
-    } else {
-      setWithAudio(false);
+      return;
     }
+
+    // If permission is already granted, toggle between active and muted
+    setWithAudio((prev) => !prev);
   };
 
   // Helper to detect supported H.264 video codec for WebCodecs
@@ -376,26 +386,33 @@ export function ScreenRecorder() {
               echoCancellation: true,
               noiseSuppression: true,
               autoGainControl: true,
-              sampleRate: 48000,
             },
           });
-          activeStreamsRef.current.push(micStream);
-          setMicPermission("granted");
-        } catch (err: unknown) {
-          const errName = (err as { name?: string })?.name;
-          console.warn("Microphone access error:", err);
-          if (errName === "NotAllowedError" || errName === "PermissionDeniedError") {
-            setMicPermission("denied");
-            const proceed = window.confirm(
-              "Microphone permission is blocked in your browser settings.\n\n" +
-              "• Click OK to record presentation video with system/tab audio only.\n" +
-              "• Click Cancel to open permission settings and enable your microphone."
-            );
-            if (!proceed) {
-              setShowPermissionModal(true);
-              return;
+        } catch (constraintErr) {
+          console.warn("Retrying microphone with basic audio constraint:", constraintErr);
+          try {
+            micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          } catch (err: unknown) {
+            const errName = (err as { name?: string })?.name;
+            console.warn("Microphone access error:", err);
+            if (errName === "NotAllowedError" || errName === "PermissionDeniedError") {
+              setMicPermission("denied");
+              const proceed = window.confirm(
+                "Microphone permission is blocked in your browser settings.\n\n" +
+                "• Click OK to record presentation video with system/tab audio only.\n" +
+                "• Click Cancel to open permission settings and enable your microphone."
+              );
+              if (!proceed) {
+                setShowPermissionModal(true);
+                return;
+              }
             }
           }
+        }
+
+        if (micStream && micStream.getAudioTracks().length > 0) {
+          activeStreamsRef.current.push(micStream);
+          setMicPermission("granted");
         }
       }
 
@@ -570,20 +587,22 @@ export function ScreenRecorder() {
           const AudioContextClass =
             window.AudioContext ||
             (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-          const audioCtx = new AudioContextClass({ sampleRate: 48000 });
+          const audioCtx = new AudioContextClass();
           if (audioCtx.state === "suspended") {
             await audioCtx.resume();
           }
           audioContextRef.current = audioCtx;
 
           const destination = audioCtx.createMediaStreamDestination();
+          const mixer = audioCtx.createGain();
+          mixer.gain.value = 1.0;
 
           if (hasMic && micStream) {
             const micSource = audioCtx.createMediaStreamSource(micStream);
             const micGain = audioCtx.createGain();
             micGain.gain.value = 1.0;
             micSource.connect(micGain);
-            micGain.connect(destination);
+            micGain.connect(mixer);
           }
 
           if (hasDisplayAudio) {
@@ -592,13 +611,14 @@ export function ScreenRecorder() {
             const displayGain = audioCtx.createGain();
             displayGain.gain.value = 1.0;
             displaySource.connect(displayGain);
-            displayGain.connect(destination);
+            displayGain.connect(mixer);
           }
 
           // Live audio analyser for real-time speech meter HUD
           const analyser = audioCtx.createAnalyser();
           analyser.fftSize = 64;
-          destination.connect(analyser);
+          mixer.connect(destination);
+          mixer.connect(analyser);
           analyserRef.current = analyser;
 
           mixedAudioTrack = destination.stream.getAudioTracks()[0] || null;
@@ -618,13 +638,14 @@ export function ScreenRecorder() {
         // Audio Codec Selection for MP4
         let audioCodecName: "aac" | "opus" | null = null;
         let audioEncoderCodec: string | null = null;
+        const audioSampleRate = audioContextRef.current?.sampleRate || 48000;
 
         if (mixedAudioTrack && typeof AudioEncoder !== "undefined") {
           try {
             // Check AAC first (universal for Windows Media Player, iOS, Web)
             const aacRes = await AudioEncoder.isConfigSupported({
               codec: "mp4a.40.2",
-              sampleRate: 48000,
+              sampleRate: audioSampleRate,
               numberOfChannels: 1,
               bitrate: 128_000,
             }).catch(() => ({ supported: false }));
@@ -635,7 +656,7 @@ export function ScreenRecorder() {
             } else {
               const opusRes = await AudioEncoder.isConfigSupported({
                 codec: "opus",
-                sampleRate: 48000,
+                sampleRate: audioSampleRate,
                 numberOfChannels: 1,
                 bitrate: 128_000,
               }).catch(() => ({ supported: false }));
@@ -663,7 +684,7 @@ export function ScreenRecorder() {
                 audio: {
                   codec: audioCodecName,
                   numberOfChannels: 1,
-                  sampleRate: 48000,
+                  sampleRate: audioSampleRate,
                 },
               }
             : {}),
@@ -709,7 +730,7 @@ export function ScreenRecorder() {
                 const duration =
                   chunk.duration != null && Number.isFinite(chunk.duration) && chunk.duration >= 0
                     ? chunk.duration
-                    : Math.round((1024 / 48000) * 1_000_000); // 21333 microseconds
+                    : Math.round((1024 / audioSampleRate) * 1_000_000);
                 muxer.addAudioChunkRaw(data, chunk.type, chunk.timestamp, duration, meta);
               } catch (err) {
                 console.error("Muxer addAudioChunkRaw error:", err);
@@ -719,7 +740,7 @@ export function ScreenRecorder() {
           });
           audioEncoder.configure({
             codec: audioEncoderCodec,
-            sampleRate: 48000,
+            sampleRate: audioSampleRate,
             numberOfChannels: 1,
             bitrate: 128_000,
           });
@@ -781,6 +802,11 @@ export function ScreenRecorder() {
                 }
               };
 
+              if (mixedAudioTrack) {
+                const bridgeStream = new MediaStream([mixedAudioTrack]);
+                const bridgeSource = audioCtx.createMediaStreamSource(bridgeStream);
+                bridgeSource.connect(scriptNode);
+              }
               const dummyDest = audioCtx.createMediaStreamDestination();
               scriptNode.connect(dummyDest);
             } catch (err) {
@@ -959,17 +985,21 @@ export function ScreenRecorder() {
             onClick={handleMicToggle}
             title={
               micPermission === "denied"
-                ? "Microphone blocked in browser"
+                ? "Microphone blocked in browser (Click to open instructions)"
+                : micPermission !== "granted"
+                ? "Click to enable & test microphone"
                 : withAudio
-                ? "Microphone on"
-                : "Microphone muted"
+                ? "Microphone active (Click to mute)"
+                : "Microphone muted (Click to unmute)"
             }
-            className={`p-1.5 rounded-lg transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all ${
               micPermission === "denied"
-                ? "text-rose-400 hover:bg-rose-500/10"
-                : withAudio
-                ? "text-zinc-200 hover:bg-zinc-800"
-                : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+                ? "border-rose-500/40 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20"
+                : !withAudio
+                ? "border-slate-800 bg-slate-900/60 text-slate-500 hover:text-slate-300 hover:bg-slate-800"
+                : micPermission === "granted"
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                : "border-blue-500/40 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20"
             }`}
           >
             {micPermission === "denied" || !withAudio ? (
@@ -977,6 +1007,15 @@ export function ScreenRecorder() {
             ) : (
               <Mic className="h-3.5 w-3.5" />
             )}
+            <span className="hidden sm:inline text-[11px]">
+              {micPermission === "denied"
+                ? "Mic Blocked"
+                : !withAudio
+                ? "Mic Muted"
+                : micPermission === "granted"
+                ? "Mic Ready"
+                : "Enable Mic"}
+            </span>
           </button>
         )}
 
@@ -987,6 +1026,22 @@ export function ScreenRecorder() {
               <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
               <span>{formatTime(recordedSeconds)}</span>
             </div>
+
+            {/* LIVE AUDIO LEVEL VU METER */}
+            {withAudio && (
+              <div
+                className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-800/80 border border-slate-700/80 text-xs"
+                title={`Microphone input level: ${Math.round(audioLevel * 100)}%`}
+              >
+                <Mic className={`h-3 w-3 ${audioLevel > 0.05 ? "text-emerald-400 animate-pulse" : "text-slate-400"}`} />
+                <div className="w-10 h-1.5 bg-slate-950 rounded-full overflow-hidden flex items-center p-0.5">
+                  <div
+                    className="h-full bg-emerald-400 rounded-full transition-all duration-75"
+                    style={{ width: `${Math.max(6, Math.round(audioLevel * 100))}%` }}
+                  />
+                </div>
+              </div>
+            )}
 
             <button
               onClick={stopRecording}
