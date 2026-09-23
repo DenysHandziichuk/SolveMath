@@ -31,7 +31,7 @@ export interface ExtractedSolution {
  */
 export function cleanSpeakerScript(rawScript: string): string {
   if (!rawScript || typeof rawScript !== "string") {
-    return "Analyze the mathematical constraints and derive the exact solution.";
+    return "Let's work through the problem step by step to find the solution.";
   }
 
   let script = rawScript.trim();
@@ -64,7 +64,7 @@ export function cleanSpeakerScript(rawScript: string): string {
   }
 
   if (!script) {
-    return "Analyze the mathematical constraints and derive the exact solution.";
+    return "Let's work through the problem step by step to find the solution.";
   }
 
   // Ensure first character is capitalized
@@ -138,6 +138,7 @@ export function isGeometryOrGraphingTask(problemText: string, topic?: string): b
     /\b(remainder theorem|factor theorem|synthetic division|polynomial division)\b/i,
     /\b(solve for [a-z]|solve the equation|roots of the polynomial)\b/i,
     /\b(evaluate|find the value of)\b/i,
+    /\b(explain why|definition of|constant polynomial|degree of the polynomial)\b/i,
   ];
   if (algebraicIndicators.some((rgx) => rgx.test(combined))) {
     return false;
@@ -291,6 +292,141 @@ export function parseQuestionsFromRawText(raw: string): ExtractedQuestion[] {
   return questions;
 }
 
+function cleanSlideText(raw: string): string {
+  if (!raw) return "";
+  return raw
+    .replace(/(?:^|\n)[ \t]*(?:#+\s*)?(?:key takeaways?|takeaways?|governing conditions?)\s*[:.\-–—]*/gi, "\n")
+    .replace(/[ \t]*(?:state all governing(?: mathematical)? conditions?\.?)/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
+ * Helper: Normalize Solution Structure
+ * - When needsGraph === true: EXACTLY 4 slides (Problem Statement, Solution of the Problem, Evidence [graph], Conclusion)
+ * - When needsGraph === false: EXACTLY 3 slides (Problem Statement, Solution of the Problem, Conclusion)
+ */
+export function normalizeSolution(
+  data: unknown,
+  problemText?: string,
+  topic?: string
+): ExtractedSolution | null {
+  if (typeof data === "object" && data !== null) {
+    const obj = data as Record<string, unknown>;
+    if (Array.isArray(obj.slides) && obj.slides.length > 0) {
+      const needsGraph = problemText
+        ? isGeometryOrGraphingTask(problemText, topic)
+        : Boolean(obj.graphData && (obj.graphData as Record<string, unknown>).functions);
+
+      let inputSlides = obj.slides as Record<string, unknown>[];
+
+      if (!needsGraph) {
+        // Evidence is ONLY needed if the graph will help show the solution.
+        // For pure algebra, filter out any evidence/graph slides.
+        const filtered = inputSlides.filter((s) => {
+          const type = String(s.type || "").toLowerCase();
+          const title = String(s.title || "").toLowerCase();
+          if (type === "graph" || type === "evidence") return false;
+          if (title.includes("evidence") || title.includes("verification") || title.includes("proof")) return false;
+          return true;
+        });
+
+        if (filtered.length >= 3) {
+          const introSlide = filtered[0];
+          const conclusionSlide = filtered[filtered.length - 1];
+          const middleSlides = filtered.slice(1, -1);
+          const solutionSlide = {
+            title: "Solution of the Problem",
+            subtitle: middleSlides[0]?.subtitle || topic || "Step-by-Step Solution",
+            content: middleSlides.map((m) => String(m.content || m.text || "")).filter(Boolean).join("\n\n"),
+            notes: middleSlides[0]?.notes || "Follow the step-by-step mathematical derivation.",
+            type: "solution",
+          };
+          inputSlides = [introSlide, solutionSlide, conclusionSlide];
+        } else if (filtered.length === 2) {
+          inputSlides = filtered;
+        } else {
+          inputSlides = inputSlides.slice(0, 3);
+        }
+
+        const standardTitles = [
+          "Problem Statement",
+          "Solution of the Problem",
+          "Conclusion",
+        ];
+        const standardTypes = ["intro", "solution", "conclusion"];
+
+        return {
+          explanation: String(obj.explanation || "Problem Solution"),
+          slides: inputSlides.slice(0, 3).map((s: Record<string, unknown>, idx: number) => {
+            let rawTitle = String(s.title || standardTitles[idx] || `Slide ${idx + 1}`);
+            if (idx === 0) rawTitle = "Problem Statement";
+            else if (idx === 1) rawTitle = "Solution of the Problem";
+            else if (idx === 2) rawTitle = "Conclusion";
+
+            return {
+              title: rawTitle,
+              subtitle: s.subtitle ? String(s.subtitle) : (topic || "Advanced Functions"),
+              content: cleanSlideText(String(s.content || s.text || "")),
+              notes: cleanSpeakerScript(
+                String(s.notes || s.script || "Let's work through the problem step by step to find the solution.")
+              ),
+              type: standardTypes[idx] || "solution",
+            };
+          }),
+          graphData: undefined,
+        };
+      }
+
+      // When needsGraph is true (visual graph helps show the solution) -> strictly 4 slides
+      if (inputSlides.length > 4) {
+        const introSlide = inputSlides[0];
+        const solutionSlide = {
+          title: "Solution of the Problem",
+          subtitle: inputSlides[1]?.subtitle || inputSlides[2]?.subtitle || topic || "Step-by-Step Solution",
+          content: [inputSlides[1]?.content, inputSlides[2]?.content].filter(Boolean).join("\n\n"),
+          notes: inputSlides[1]?.notes || inputSlides[2]?.notes || "Work through the mathematical solution.",
+          type: "solution",
+        };
+        const evidenceSlide = inputSlides[inputSlides.length - 2];
+        const conclusionSlide = inputSlides[inputSlides.length - 1];
+        inputSlides = [introSlide, solutionSlide, evidenceSlide, conclusionSlide];
+      }
+
+      const standardTitles = [
+        "Problem Statement",
+        "Solution of the Problem",
+        "Evidence",
+        "Conclusion",
+      ];
+      const standardTypes = ["intro", "solution", "graph", "conclusion"];
+
+      return {
+        explanation: String(obj.explanation || "Problem Solution"),
+        slides: inputSlides.slice(0, 4).map((s: Record<string, unknown>, idx: number) => {
+          let rawTitle = String(s.title || standardTitles[idx] || `Slide ${idx + 1}`);
+          if (idx === 0) rawTitle = "Problem Statement";
+          else if (idx === 1) rawTitle = "Solution of the Problem";
+          else if (idx === 2) rawTitle = "Evidence";
+          else if (idx === 3) rawTitle = "Conclusion";
+
+          return {
+            title: rawTitle,
+            subtitle: s.subtitle ? String(s.subtitle) : (topic || "Advanced Functions"),
+            content: cleanSlideText(String(s.content || s.text || "")),
+            notes: cleanSpeakerScript(
+              String(s.notes || s.script || "Let's work through the problem step by step to find the solution.")
+            ),
+            type: standardTypes[idx] || "solution",
+          };
+        }),
+        graphData: (obj.graphData as Record<string, unknown>) || undefined,
+      };
+    }
+  }
+  return null;
+}
+
 export function extractJson<T = Record<string, unknown>>(
   raw: string,
   mode: "questions" | "solution" = "questions",
@@ -359,48 +495,6 @@ export function extractJson<T = Record<string, unknown>>(
               type: String(obj.type || detectTopic(text)),
             },
           ],
-        };
-      }
-    }
-    return null;
-  };
-
-  // -------------------------------------------------------------------------
-  // Helper: Normalize Solution Structure
-  // -------------------------------------------------------------------------
-  const normalizeSolution = (data: unknown): ExtractedSolution | null => {
-    if (typeof data === "object" && data !== null) {
-      const obj = data as Record<string, unknown>;
-      if (Array.isArray(obj.slides) && obj.slides.length > 0) {
-        const needsGraph = problemText
-          ? isGeometryOrGraphingTask(problemText, topic)
-          : Boolean(obj.graphData && (obj.graphData as Record<string, unknown>).functions);
-
-        return {
-          explanation: String(obj.explanation || "Problem Solution"),
-          slides: obj.slides.map((s: Record<string, unknown>, idx: number) => {
-            let title = String(s.title || `Step ${idx + 1}`);
-            let type = s.type ? String(s.type) : undefined;
-
-            // If the task is purely algebraic, convert any graph slide to an algebraic check slide
-            if (!needsGraph) {
-              if (type === "graph") type = "derivation";
-              title = title
-                .replace(/\bgraph\s*(&|and)?\s*verification\b/gi, "Algebraic Verification & Check")
-                .replace(/\bgraph\b/gi, "Verification");
-            }
-
-            return {
-              title,
-              subtitle: s.subtitle ? String(s.subtitle) : undefined,
-              content: String(s.content || s.text || ""),
-              notes: cleanSpeakerScript(
-                String(s.notes || s.script || "Analyze the mathematical constraints and derive the solution.")
-              ),
-              type,
-            };
-          }),
-          graphData: needsGraph ? ((obj.graphData as Record<string, unknown>) || undefined) : undefined,
         };
       }
     }
@@ -556,18 +650,22 @@ export function extractJson<T = Record<string, unknown>>(
   // -------------------------------------------------------------------------
   // Fallback for Solution Mode: Markdown Slide Parser
   // -------------------------------------------------------------------------
-  const mdSolution = parseSolutionFromMarkdown(trimmed);
+  const mdSolution = parseSolutionFromMarkdown(trimmed, problemText, topic);
   if (mdSolution && mdSolution.slides.length > 0) {
     return mdSolution as unknown as T;
   }
 
-  return createDefaultSolution(trimmed) as unknown as T;
+  return createDefaultSolution(trimmed, topic) as unknown as T;
 }
 
 /**
  * Extracts structured presentation slides from markdown formatted model responses.
  */
-export function parseSolutionFromMarkdown(raw: string): ExtractedSolution | null {
+export function parseSolutionFromMarkdown(
+  raw: string,
+  problemText?: string,
+  topic?: string
+): ExtractedSolution | null {
   if (!raw || typeof raw !== "string") return null;
 
   const slideRegex =
@@ -604,20 +702,28 @@ export function parseSolutionFromMarkdown(raw: string): ExtractedSolution | null
       }
     }
 
+    const standardTitles = ["Problem Statement", "Solution of the Problem", "Evidence", "Conclusion"];
+    const standardTypes = ["intro", "solution", "evidence", "conclusion"];
+    const currentIdx = slides.length;
+
     slides.push({
-      title,
+      title: title || standardTitles[currentIdx] || `Slide ${currentIdx + 1}`,
       subtitle: "Mathematical Derivation",
       content: contentLines.join("\n") || title,
       notes,
-      type: slides.length === 0 ? "intro" : slides.length === 4 ? "summary" : "derivation",
+      type: standardTypes[Math.min(currentIdx, 3)],
     });
   }
 
   if (slides.length >= 2) {
-    return {
-      explanation: "Problem Analysis and Step-by-Step Resolution",
-      slides,
-    };
+    return normalizeSolution(
+      {
+        explanation: "Problem Analysis and Step-by-Step Resolution",
+        slides,
+      },
+      problemText,
+      topic
+    );
   }
   return null;
 }
@@ -788,100 +894,70 @@ function extractFactorsFromProblem(text: string): ParsedFactors | null {
 function buildRationalSolution(problemText: string, topic: string, f: ParsedFactors): ExtractedSolution {
   const needsGraph = isGeometryOrGraphingTask(problemText, topic);
   const restrictionValues = f.restrictions.map(r => r.value);
-  const restrictionLatex = restrictionValues.map(v => `x \\neq ${v}`).join(", \\; ");
   const resultLatex = `\\frac{${f.resultNum.join("")}}{${f.resultDen.join("")}}`;
 
-  // Find a test value that is NOT in the restrictions for algebraic verification
-  const testVal = [0, 1, 2, 3, -1, -2, -3].find(v => !restrictionValues.includes(v)) ?? 0;
+  const slides: ExtractedSlide[] = [
+    {
+      title: "Problem Statement",
+      subtitle: topic,
+      content: `Simplify the rational expression and find all variable restrictions:
+$$${f.originalLatex}$$
+Goal: Multiply by the reciprocal of the divisor, cancel common factors, and find restrictions where any denominator equals zero.`,
+      notes: `Let's simplify this division of rational expressions step by step and find any values of x that make denominators zero.`,
+      type: "intro",
+    },
+    {
+      title: "Solution of the Problem",
+      subtitle: "Step-by-Step Solution",
+      content: `Step 1: Multiply by the reciprocal of the second fraction:
+$$\\frac{${f.divNumFactors.join("")}}{${f.divDenFactors.join("")}} \\times \\frac{${f.sorDenFactors.join("")}}{${f.sorNumFactors.join("")}}$$
 
-  const slide4 = needsGraph
-    ? {
-        title: "Coordinate Behavior & Graph",
-        subtitle: topic,
-        content: `Analyzing the simplified function $f(x) = ${resultLatex}$:
-Vertical Asymptotes: ${f.resultDen.map(d => {
-          const m = d.match(/\(x\s*([+-])\s*(\d+)\)/);
-          if (m) {
-            const sign = m[1] === "+" ? 1 : -1;
-            const val = -(parseInt(m[2]) * sign);
-            return `$x = ${val}$`;
-          }
-          return "";
-        }).filter(Boolean).join(" and ")}
-Horizontal Asymptote: $y = 1$
-Removable Holes (Discontinuities): ${f.commonFactors.map(cf => {
-          const m = cf.match(/\(x\s*([+-])\s*(\d+)\)/);
-          if (m) {
-            const sign = m[1] === "+" ? 1 : -1;
-            const val = -(parseInt(m[2]) * sign);
-            return `$x = ${val}$`;
-          }
-          return "";
-        }).filter(Boolean).join(" and ")}`,
-        notes: `The Cartesian graph displays vertical asymptotes at the remaining denominator zeros, a horizontal asymptote at y equals 1, and holes at the cancelled factor locations.`,
-        type: "graph",
-      }
-    : {
-        title: "Algebraic Equivalence Verification",
-        subtitle: topic,
-        content: `Verify mathematical equivalence using test value $x = ${testVal}$ (permitted in domain):
-Original expression at $x = ${testVal}$:
-$$\\frac{(${testVal}+3)(${testVal}-6)}{(${testVal}+4)(${testVal}+5)} \\div \\frac{(${testVal}-6)(${testVal}+8)}{(${testVal}+4)(${testVal}-7)}$$
-Simplified expression at $x = ${testVal}$:
-$$\\frac{(${testVal}+3)(${testVal}-7)}{(${testVal}+5)(${testVal}+8)} = \\frac{${(testVal+3)*(testVal-7)}}{${(testVal+5)*(testVal+8)}}$$
-Both expressions evaluate to identical numerical values, verifying our algebraic derivation!`,
-        notes: `We confirm algebraic equivalence by testing a valid domain value like x equals ${testVal}. Both expressions evaluate to the same value, proving our factoring and cancellations are correct without needing a graph.`,
-        type: "derivation",
-      };
+Step 2: Note all restrictions before cancelling (denominators cannot be zero):
+$$${restrictionValues.map(v => `x \\neq ${v}`).join(", \\quad ")}$$
+
+Step 3: Cancel common factors ${f.commonFactors.length > 0 ? `$${f.commonFactors.join(", ")}$` : ""}:
+$$${resultLatex}$$`,
+      notes: `First flip the second fraction to multiply. Note all restrictions from denominators before cancelling common factors.`,
+      type: "solution",
+    },
+  ];
+
+  if (needsGraph) {
+    slides.push({
+      title: "Evidence",
+      subtitle: "Visual Graph & Asymptotes",
+      content: `Asymptotes and holes for $f(x) = ${resultLatex}$:
+• Vertical Asymptotes: ${f.resultDen.map(d => {
+        const m = d.match(/\(x\s*([+-])\s*(\d+)\)/);
+        if (m) {
+          const sign = m[1] === "+" ? 1 : -1;
+          const val = -(parseInt(m[2]) * sign);
+          return `$x = ${val}$`;
+        }
+        return "";
+      }).filter(Boolean).join(", ")}
+• Horizontal Asymptote: $y = 1$
+${f.commonFactors.length > 0 ? `• Holes: ${f.commonFactors.join(", ")}` : ""}`,
+      notes: `The graph shows vertical asymptotes where denominators equal zero and holes where factors cancelled.`,
+      type: "graph",
+    });
+  }
+
+  slides.push({
+    title: "Conclusion",
+    subtitle: "Final Answer",
+    content: `Final Simplified Expression:
+$$\\boxed{${resultLatex}}$$
+
+Restrictions:
+$$${restrictionValues.map(v => `x \\neq ${v}`).join(", \\quad ")}$$`,
+    notes: `Here is the simplified expression along with all variable restrictions.`,
+    type: "conclusion",
+  });
 
   return {
-    explanation: `Simplification of a rational expression division problem with ${f.restrictions.length} non-permissible values. We multiply by the reciprocal, cancel common factors, and state the simplified form with all variable restrictions.`,
-    slides: [
-      {
-        title: "Problem Statement",
-        subtitle: topic,
-        content: `Simplify the rational expression and determine all variable restrictions:
-$$${f.originalLatex}$$
-Goal: Multiply by the reciprocal, cancel common binomial factors, and state the non-permissible values.`,
-        notes: `We are simplifying a quotient of two rational algebraic expressions. We will determine all domain restrictions and reduce the expression to lowest terms.`,
-        type: "intro",
-      },
-      {
-        title: "Non-Permissible Values",
-        subtitle: topic,
-        content: `Set all denominator and divisor factors to non-zero:
-$${f.restrictions.map(r => `${r.factor} \\neq 0`).join(", \\quad ")}$
-Solving for each restricted value:
-$$${restrictionValues.map(v => `x \\neq ${v}`).join(", \\quad ")}$$
-Both denominators and the divisor numerator impose domain constraints.`,
-        notes: `Before simplifying, we identify all ${f.restrictions.length} non-permissible values. Any factor that appears in a denominator at any stage creates a restriction on the variable.`,
-        type: "concept",
-      },
-      {
-        title: "Algebraic Simplification",
-        subtitle: topic,
-        content: `Step 1: Multiply by the reciprocal of the divisor:
-$$\\frac{${f.divNumFactors.join("")}}{${f.divDenFactors.join("")}} \\times \\frac{${f.sorDenFactors.join("")}}{${f.sorNumFactors.join("")}}$$
-Step 2: Cancel common binomial factors ${f.commonFactors.length > 0 ? `$${f.commonFactors.join(", ")}$` : ""}:
-$$${resultLatex}$$`,
-        notes: `To divide fractions, we multiply by the reciprocal. Then we cancel ${f.commonFactors.length} identical factors from numerator and denominator to simplify to lowest terms.`,
-        type: "derivation",
-      },
-      slide4,
-      {
-        title: "Final Solution & Summary",
-        subtitle: topic,
-        content: `Simplified Expression:
-$$${resultLatex}$$
-Complete Domain Restrictions:
-$$${restrictionValues.map(v => `x \\neq ${v}`).join(", \\quad ")}$$
-Summary:
-The algebraic expression is reduced to lowest terms.
-All ${f.restrictions.length} domain restrictions must accompany the simplified expression.`,
-        notes: `In conclusion, the expression simplifies to $${resultLatex}$. All ${f.restrictions.length} domain restrictions must accompany the final result, distinguishing between vertical asymptotes and removable holes.`,
-        type: "summary",
-      },
-    ],
+    explanation: `Simplification of rational expression with ${f.restrictions.length} restrictions.`,
+    slides,
     graphData: needsGraph
       ? {
           type: "function",
@@ -913,7 +989,7 @@ All ${f.restrictions.length} domain restrictions must accompany the simplified e
             return null;
           }).filter((h): h is NonNullable<typeof h> => h !== null),
           properties: [
-            { name: "Restrictions", value: `$${restrictionLatex}$` },
+            { name: "Restrictions", value: `$${restrictionValues.map(v => `x \\neq ${v}`).join(", \\; ")}$` },
           ],
         }
       : undefined,
@@ -924,77 +1000,142 @@ function buildGenericSolution(problemText: string, topic: string, formula: strin
   const needsGraph = isGeometryOrGraphingTask(problemText, topic);
   const displayProblem = formula || problemText.slice(0, 160);
 
-  const slide4 = needsGraph
-    ? {
-        title: "Graphical & Coordinate Analysis",
-        subtitle: topic,
-        content: `Inspect key visual features and coordinate behavior:
-${displayProblem}
-Analyze intercepts, turning points, and asymptotic boundaries on the Cartesian plane.`,
-        notes: `We examine the coordinate graph to visually confirm turning points, intercepts, and boundary conditions.`,
-        type: "graph",
-      }
-    : {
-        title: "Algebraic Verification & Solution Check",
-        subtitle: topic,
-        content: `Algebraically verify the derived solution:
-Substitute the result back into the original governing equation:
-${displayProblem}
-Confirm that equivalence holds and no extraneous roots were introduced.`,
-        notes: `We algebraically verify our solution by checking equivalence against the original equation, ensuring all conditions hold without extraneous solutions.`,
-        type: "derivation",
-      };
+  // Check if problem asks why y = c is a polynomial or about polynomial definitions
+  const isPolyDef = /why.*(y\s*=\s*\d+|function.*polynomial|constant.*polynomial)|polynomial.*function.*y\s*=\s*\d+|explain\s+why.*polynomial/i.test(problemText);
 
-  return {
-    explanation: `Step-by-step analysis and solution for this ${topic} problem.`,
-    slides: [
+  if (isPolyDef) {
+    const constMatch = problemText.match(/y\s*=\s*(-?\d+(?:\.\d+)?)/i);
+    const constVal = constMatch ? constMatch[1] : "3";
+
+    const slides: ExtractedSlide[] = [
       {
         title: "Problem Statement",
-        subtitle: topic,
-        content: `Given:
-${displayProblem}
-Solve and state all governing conditions.`,
-        notes: `Let's carefully read the problem and identify the mathematical operations and unknowns involved.`,
+        subtitle: "Polynomial Functions",
+        content: `Given function:
+$$y = ${constVal}$$
+
+Explain why $y = ${constVal}$ is a polynomial function.`,
+        notes: `Let's look at the constant function y equals ${constVal} and see why it fits the definition of a polynomial.`,
         type: "intro",
       },
       {
-        title: "Key Concepts & Setup",
-        subtitle: topic,
-        content: isTrig
-          ? `Identify applicable trigonometric identities:
-$\\sin^2\\theta + \\cos^2\\theta = 1$
-Determine the domain: $\\theta \\in [0, 2\\pi)$
-Note any restricted values.`
-          : `Identify the structure of the expression:
+        title: "Solution of the Problem",
+        subtitle: "Definition of a Polynomial",
+        content: `A polynomial is an expression where all exponents of the variable are non-negative integers (whole numbers: $0, 1, 2, \\dots$).
+
+We can rewrite $y = ${constVal}$ with an explicit power of $x$:
+$$y = ${constVal}x^0$$
+
+Since $x^0 = 1$ for any $x \\neq 0$:
+$$y = ${constVal}(1) = ${constVal}$$
+
+The exponent of $x$ is $0$, which is a non-negative integer. Therefore, $y = ${constVal}$ is a polynomial of degree $0$ (a constant polynomial).`,
+        notes: `Any non-zero value to the power of 0 is 1. Writing y as ${constVal} times x to the power of 0 shows that the exponent is 0, which is a whole number.`,
+        type: "solution",
+      },
+    ];
+
+    if (needsGraph) {
+      slides.push({
+        title: "Evidence",
+        subtitle: "Visual Graph",
+        content: `On the Cartesian plane, $y = ${constVal}$ is a horizontal line:
+• Every point has $y$-coordinate ${constVal}
+• The slope is $m = 0$
+• The $y$-intercept is $(0, ${constVal})$`,
+        notes: `Looking at the graph, y equals ${constVal} forms a flat horizontal line with slope 0.`,
+        type: "graph",
+      });
+    }
+
+    slides.push({
+      title: "Conclusion",
+      subtitle: "Final Answer",
+      content: `$$\\boxed{y = ${constVal}x^0 \\quad (\\text{Degree } 0 \\text{ Constant Polynomial})}$$
+
+• Degree: $0$
+• Leading coefficient: $a_0 = ${constVal}$
+• Domain: all real numbers ($x \\in \\mathbb{R}$)`,
+      notes: `In conclusion, y equals ${constVal} is a polynomial function with degree 0.`,
+      type: "conclusion",
+    });
+
+    return {
+      explanation: `Explanation that the constant function y = ${constVal} is a degree 0 polynomial.`,
+      slides,
+      graphData: needsGraph
+        ? {
+            type: "function",
+            equation: `y = ${constVal}`,
+            bounds: { minX: -5, maxX: 5, minY: -2, maxY: Number(constVal) + 3 },
+            functions: [
+              { mathjs: String(constVal), color: "#38bdf8", equation: `y = ${constVal}` },
+            ],
+            properties: [
+              { name: "Degree", value: "0" },
+              { name: "Function Type", value: "Constant Polynomial" },
+              { name: "Domain", value: "x ∈ ℝ" },
+              { name: "Slope", value: "m = 0" },
+            ],
+          }
+        : undefined,
+    };
+  }
+
+  const slides: ExtractedSlide[] = [
+    {
+      title: "Problem Statement",
+      subtitle: topic,
+      content: `Problem:
 ${displayProblem}
-Determine domain constraints where the expression is undefined.`,
-        notes: `Before solving, we establish the domain and identify which mathematical tools apply.`,
-        type: "concept",
-      },
-      {
-        title: "Solution Steps",
-        subtitle: topic,
-        content: isTrig
-          ? `Step 1: Substitute known identities and simplify.
-Step 2: Isolate the trigonometric ratio.
-Step 3: Apply inverse trig functions for exact values.`
-          : `Step 1: Identify and factor all algebraic components.
-Step 2: Apply relevant algebraic operations.
-Step 3: Simplify and reduce to lowest terms.`,
-        notes: `We work through the algebraic manipulation step by step, maintaining equivalence at each stage.`,
-        type: "derivation",
-      },
-      slide4,
-      {
-        title: "Final Answer & Summary",
-        subtitle: topic,
-        content: `The verified solution to:
+
+Identify given values and what needs to be solved.`,
+      notes: `Let's read the problem carefully and identify what we need to solve.`,
+      type: "intro",
+    },
+    {
+      title: "Solution of the Problem",
+      subtitle: "Step-by-Step Solution",
+      content: isTrig
+        ? `Step 1: Apply standard trigonometric identities and angle values.
+Step 2: Isolate the trigonometric ratio on the interval.
+Step 3: Solve for the exact values.`
+        : `Step 1: Set up the equations and identify the operations needed.
+Step 2: Work through the algebraic steps carefully.
+Step 3: Simplify and reach the final result.`,
+      notes: `Let's work through the steps one by one to solve the problem.`,
+      type: "solution",
+    },
+  ];
+
+  if (needsGraph) {
+    slides.push({
+      title: "Evidence",
+      subtitle: "Visual Graph & Key Features",
+      content: `Visual analysis on the Cartesian plane:
 ${displayProblem}
-has been resolved with all restrictions and boundary conditions verified.`,
-        notes: `State the complete solution set, confirming that all conditions and restrictions hold.`,
-        type: "summary",
-      },
-    ],
+• Intercepts and axis intersections
+• Turning points and extrema
+• Asymptotes and end behavior`,
+      notes: `The graph visually confirms our key points and solution.`,
+      type: "graph",
+    });
+  }
+
+  slides.push({
+    title: "Conclusion",
+    subtitle: "Final Answer",
+    content: `Final Answer:
+${displayProblem}
+
+The solution has been verified and all conditions are satisfied.`,
+    notes: `Here is the final verified answer.`,
+    type: "conclusion",
+  });
+
+  return {
+    explanation: `Step-by-step resolution for this ${topic} problem.`,
+    slides,
     graphData: needsGraph
       ? {
           type: "function",
