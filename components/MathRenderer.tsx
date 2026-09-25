@@ -223,7 +223,7 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
   }
 
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div className={cn("flex flex-col gap-2 sm:gap-2.5", className)}>
       {renderedElements}
     </div>
   );
