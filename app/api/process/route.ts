@@ -23,27 +23,28 @@ export async function POST(req: NextRequest) {
 Carefully examine the provided screenshot and identify ALL distinct math questions, exercises, or exam problems.
 
 CRITICAL INSTRUCTIONS:
-1. Extract EVERY distinct problem separately into the 'questions' array. Never merge multiple questions into one problem.
+1. Extract EVERY distinct problem separately into the 'questions' array. Never merge multiple distinct numbered/lettered questions into one problem.
 2. Preserve original question labels/numbers exactly as shown in the image (e.g., "C1", "C2", "C3", "C4", "1a", "Question 1", "Exercise 2").
-3. Accurately transcribe all mathematical expressions and equations into standard LaTeX enclosed in $...$ (e.g. $\\frac{a}{b}$, $\\div$, $\\neq$, $\\sqrt{x}$).
-4. Categorize each problem into its curriculum topic (e.g., "Rational Functions & Expressions", "Polynomial Equations", "Trigonometric Functions", "Exponential & Logarithmic Functions", "Calculus & Rates of Change").
-5. Assign a difficulty rating from 1 to 10.
+3. MULTI-PART QUESTIONS INTEGRITY: If a question has subparts like a), b), c) or i), ii) (e.g., "Sketch the graph of a quartic function that: a) has line symmetry, b) does not have line symmetry" or "Describe the similarities between: a) the lines y = x and y = -x... b) the parabolas y = x^2 and y = -x^2..."), you MUST transcribe ALL subparts completely in the 'text' field! NEVER truncate, summarize, or drop subparts a), b), etc.
+4. Accurately transcribe all mathematical expressions and equations into standard LaTeX enclosed in $...$ (e.g. $\\frac{a}{b}$, $\\div$, $\\neq$, $\\sqrt{x}$, $y = x^4 - 4x^2$).
+5. Categorize each problem into its curriculum topic (e.g., "Rational Functions & Expressions", "Polynomial Equations & Functions", "Trigonometric Functions", "Exponential & Logarithmic Functions", "Calculus & Rates of Change").
+6. Assign a difficulty rating from 1 to 10.
+7. IMMEDIATE JSON ONLY: Begin your response directly with {"questions": on the very first character. Do NOT output conversational preambles, introductory commentary, or conclusions.
 
-Return ONLY a valid JSON object matching this schema:
+Return strictly valid JSON matching this schema:
 {
   "questions": [
     {
-      "id": "C1",
-      "text": "Describe how you would simplify $\\\\frac{(x+3)(x-6)}{(x+4)(x+5)} \\\\div \\\\frac{(x-6)(x+8)}{(x+4)(x-7)}$. What are the restrictions on the variable?",
+      "id": "C3",
+      "text": "Sketch the graph of a quartic function that: a) has line symmetry, b) does not have line symmetry",
       "difficulty": 5,
-      "type": "Rational Functions & Expressions"
+      "type": "Polynomial Equations & Functions"
     }
   ]
-}
-Output strictly valid JSON starting with { and ending with }. Do not write conversational introductory text or markdown backticks.`;
+}`;
 
     const userPrompt =
-      "Analyze this screenshot and identify all distinct math questions and exercises (preserving labels like C1, C2, C3, C4 or 1a, 2b). Return strictly valid JSON with the questions array. Use standard LaTeX $...$ for mathematical expressions.";
+      "Analyze this screenshot and identify all distinct math questions and exercises (preserving labels like C1, C2, C3, C4 or 1a, 2b). Make sure all subparts (a, b, c) are completely included in each question. Return strictly valid JSON starting with { on the first character.";
 
     const useNvidia = Boolean(process.env.NVIDIA_API_KEY || !process.env.GROQ_API_KEY);
     const model = useNvidia
@@ -72,7 +73,7 @@ Output strictly valid JSON starting with { and ending with }. Do not write conve
               },
             ],
             model,
-            max_tokens: 1500,
+            max_tokens: 2500,
             temperature: 0.1,
           },
           { timeout: 60000 }
