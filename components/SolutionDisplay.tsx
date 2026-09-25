@@ -22,14 +22,6 @@ import { MathGraph } from "./MathGraph";
 import { ScreenRecorder } from "./ScreenRecorder";
 import { cn } from "@/lib/utils";
 
-interface Slide {
-  title: string;
-  subtitle?: string;
-  content: string;
-  notes: string;
-  type?: string;
-}
-
 interface GraphFunction {
   points?: { x: number; y: number }[];
   mathjs?: string;
@@ -37,23 +29,38 @@ interface GraphFunction {
   equation?: string;
 }
 
-interface Solution {
-  explanation: string;
-  slides: Slide[];
-  graphData?: {
-    type: string;
-    equation: string;
-    isRadian?: boolean;
-    points?: { x: number; y: number }[];
-    functions?: GraphFunction[];
-    asymptotes?: { type: "vertical" | "horizontal" | "oblique"; value: number | string; label?: string }[];
-    holes?: { x: number; y: number }[];
-    properties?: { name: string; value: string }[];
-    bounds?: { minX: number; maxX: number; minY: number; maxY: number };
-  };
+export interface GraphData {
+  title?: string;
+  type?: string;
+  equation?: string;
+  isRadian?: boolean;
+  points?: { x: number; y: number }[];
+  functions?: GraphFunction[];
+  asymptotes?: { type: "vertical" | "horizontal" | "oblique"; value: number | string; label?: string }[];
+  symmetryAxis?: number;
+  holes?: { x: number; y: number }[];
+  properties?: { name: string; value: string }[];
+  bounds?: { minX: number; maxX: number; minY: number; maxY: number };
 }
 
-interface SolutionDisplayProps {
+export interface Slide {
+  title: string;
+  subtitle?: string;
+  content: string;
+  notes: string;
+  type?: string;
+  graphData?: GraphData;
+  graphs?: GraphData[];
+}
+
+export interface Solution {
+  explanation: string;
+  slides: Slide[];
+  graphData?: GraphData;
+  graphs?: GraphData[];
+}
+
+export interface SolutionDisplayProps {
   solution: Solution;
   onReset: () => void;
 }
@@ -132,19 +139,49 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
     (solution.slides && solution.slides[currentSlideIndex]) ||
     solution.slides?.[0] ||
     defaultSlide;
-  const hasValidGraph = Boolean(
-    solution.graphData &&
-      (solution.graphData.functions?.length || solution.graphData.points?.length)
-  );
+
+  const [graphComparisonView, setGraphComparisonView] = useState<"dual" | "a" | "b">("dual");
+
+  // Reset comparison view on slide switch
+  useEffect(() => {
+    setGraphComparisonView("dual");
+  }, [currentSlideIndex]);
+
+  // Determine active graphs: prioritize slide-level graphs, then solution-level graphs
+  const slideGraphs: GraphData[] =
+    currentSlide.graphs ||
+    (currentSlide.graphData ? [currentSlide.graphData] : []);
+
+  const solutionGraphs: GraphData[] =
+    solution.graphs ||
+    (solution.graphData ? [solution.graphData] : []);
+
+  // Slide types that are explicitly non-graph slides
+  const isExplicitNonGraphSlide =
+    currentSlide.type === "intro" ||
+    currentSlide.type === "solution" ||
+    currentSlide.type === "concept" ||
+    currentSlide.type === "derivation" ||
+    currentSlide.type === "summary" ||
+    currentSlide.type === "conclusion" ||
+    currentSlideIndex === 0;
+
+  // A slide is a graph slide if it has its own graphs, or is marked as graph/evidence
+  const isGraphSlideType =
+    currentSlide.type === "graph" ||
+    currentSlide.type === "evidence" ||
+    currentSlide.type === "comparison" ||
+    Boolean(currentSlide.title && /evidence|graph|visual|plot|coordinate/i.test(currentSlide.title));
 
   const isGraphSlide =
-    hasValidGraph &&
-    (currentSlide.type === "graph" ||
-      currentSlide.type === "evidence" ||
-      (currentSlide.title && currentSlide.title.toLowerCase().includes("evidence")) ||
-      (currentSlide.title && currentSlide.title.toLowerCase().includes("graph")) ||
-      (currentSlide.title && currentSlide.title.toLowerCase().includes("visual")) ||
-      (currentSlide.title && currentSlide.title.toLowerCase().includes("geometric")));
+    Boolean(slideGraphs.length) ||
+    (!isExplicitNonGraphSlide && isGraphSlideType && Boolean(solutionGraphs.length));
+
+  const activeGraphs = slideGraphs.length > 0 ? slideGraphs : (isGraphSlide ? solutionGraphs : []);
+  const isMultiGraph = activeGraphs.length >= 2;
+  const hasValidGraph =
+    activeGraphs.length > 0 &&
+    activeGraphs.some((g) => (g.functions?.length || g.points?.length));
 
   // Presentation Timer
   useEffect(() => {
@@ -346,27 +383,156 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
                 </h1>
 
                 {/* Split view when graph slide */}
-                {isGraphSlide && solution.graphData ? (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-center flex-1 min-h-0 overflow-hidden">
-                    <div className={cn("text-sm sm:text-base lg:text-lg font-normal leading-relaxed overflow-y-auto max-h-full pr-2", activeTheme.subtext)}>
-                      <MathRenderer text={currentSlide.content} />
+                {isGraphSlide && activeGraphs.length > 0 ? (
+                  isMultiGraph ? (
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch flex-1 min-h-0 overflow-hidden">
+                      {/* Left: Mathematical Explanation */}
+                      <div className={cn("lg:col-span-4 text-xs sm:text-sm lg:text-base font-normal leading-relaxed overflow-y-auto max-h-full pr-2 flex flex-col justify-between", activeTheme.subtext)}>
+                        <div className="space-y-3">
+                          <MathRenderer text={currentSlide.content} />
+                        </div>
+                        {/* Comparison Switcher Controls */}
+                        <div className="pt-2 mt-auto border-t border-white/10 flex items-center gap-1.5 shrink-0 select-none">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mr-1">View:</span>
+                          <button
+                            onClick={() => setGraphComparisonView("dual")}
+                            className={cn(
+                              "px-2.5 py-1 rounded-lg text-xs font-semibold transition-all",
+                              graphComparisonView === "dual"
+                                ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 ring-1 ring-blue-400"
+                                : "bg-slate-800/80 text-slate-300 hover:bg-slate-700"
+                            )}
+                          >
+                            Dual View
+                          </button>
+                          <button
+                            onClick={() => setGraphComparisonView("a")}
+                            className={cn(
+                              "px-2.5 py-1 rounded-lg text-xs font-semibold transition-all",
+                              graphComparisonView === "a"
+                                ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 ring-1 ring-blue-400"
+                                : "bg-slate-800/80 text-slate-300 hover:bg-slate-700"
+                            )}
+                          >
+                            {activeGraphs[0]?.title ? "Graph (a)" : "Graph A"}
+                          </button>
+                          <button
+                            onClick={() => setGraphComparisonView("b")}
+                            className={cn(
+                              "px-2.5 py-1 rounded-lg text-xs font-semibold transition-all",
+                              graphComparisonView === "b"
+                                ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 ring-1 ring-blue-400"
+                                : "bg-slate-800/80 text-slate-300 hover:bg-slate-700"
+                            )}
+                          >
+                            {activeGraphs[1]?.title ? "Graph (b)" : "Graph B"}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Right: Graph Canvas Panel (Dual side-by-side or single focused) */}
+                      <div className="lg:col-span-8 flex items-center justify-center h-full max-h-full overflow-hidden">
+                        {graphComparisonView === "dual" ? (
+                          <div className="grid grid-cols-2 gap-3 w-full h-full items-center justify-center">
+                            <MathGraph
+                              title={activeGraphs[0].title || "Case (a)"}
+                              functions={activeGraphs[0].functions}
+                              points={activeGraphs[0].points}
+                              properties={activeGraphs[0].properties}
+                              bounds={activeGraphs[0].bounds}
+                              asymptotes={activeGraphs[0].asymptotes}
+                              symmetryAxis={activeGraphs[0].symmetryAxis}
+                              holes={activeGraphs[0].holes}
+                              isRadian={activeGraphs[0].isRadian}
+                              color="#38bdf8"
+                              equation={activeGraphs[0].equation}
+                              compact={true}
+                            />
+                            <MathGraph
+                              title={activeGraphs[1].title || "Case (b)"}
+                              functions={activeGraphs[1].functions}
+                              points={activeGraphs[1].points}
+                              properties={activeGraphs[1].properties}
+                              bounds={activeGraphs[1].bounds}
+                              asymptotes={activeGraphs[1].asymptotes}
+                              symmetryAxis={activeGraphs[1].symmetryAxis}
+                              holes={activeGraphs[1].holes}
+                              isRadian={activeGraphs[1].isRadian}
+                              color="#10b981"
+                              equation={activeGraphs[1].equation}
+                              compact={true}
+                            />
+                          </div>
+                        ) : graphComparisonView === "a" ? (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <MathGraph
+                              title={activeGraphs[0].title || "Case (a)"}
+                              functions={activeGraphs[0].functions}
+                              points={activeGraphs[0].points}
+                              properties={activeGraphs[0].properties}
+                              bounds={activeGraphs[0].bounds}
+                              asymptotes={activeGraphs[0].asymptotes}
+                              symmetryAxis={activeGraphs[0].symmetryAxis}
+                              holes={activeGraphs[0].holes}
+                              isRadian={activeGraphs[0].isRadian}
+                              color="#38bdf8"
+                              equation={activeGraphs[0].equation}
+                            />
+                          </div>
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <MathGraph
+                              title={activeGraphs[1].title || "Case (b)"}
+                              functions={activeGraphs[1].functions}
+                              points={activeGraphs[1].points}
+                              properties={activeGraphs[1].properties}
+                              bounds={activeGraphs[1].bounds}
+                              asymptotes={activeGraphs[1].asymptotes}
+                              symmetryAxis={activeGraphs[1].symmetryAxis}
+                              holes={activeGraphs[1].holes}
+                              isRadian={activeGraphs[1].isRadian}
+                              color="#10b981"
+                              equation={activeGraphs[1].equation}
+                            />
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center justify-center h-full max-h-full overflow-hidden">
-                      <MathGraph
-                        functions={solution.graphData.functions}
-                        points={solution.graphData.points}
-                        properties={solution.graphData.properties}
-                        bounds={solution.graphData.bounds}
-                        asymptotes={solution.graphData.asymptotes}
-                        holes={solution.graphData.holes}
-                        isRadian={solution.graphData.isRadian}
-                        color={activeTheme.accent}
-                        equation={solution.graphData.equation}
-                      />
+                  ) : (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-center flex-1 min-h-0 overflow-hidden">
+                      <div className={cn("text-sm sm:text-base lg:text-lg font-normal leading-relaxed overflow-y-auto max-h-full pr-2", activeTheme.subtext)}>
+                        <MathRenderer text={currentSlide.content} />
+                      </div>
+                      <div className="flex items-center justify-center h-full max-h-full overflow-hidden">
+                        <MathGraph
+                          title={activeGraphs[0]?.title}
+                          functions={activeGraphs[0]?.functions}
+                          points={activeGraphs[0]?.points}
+                          properties={activeGraphs[0]?.properties}
+                          bounds={activeGraphs[0]?.bounds}
+                          asymptotes={activeGraphs[0]?.asymptotes}
+                          symmetryAxis={activeGraphs[0]?.symmetryAxis}
+                          holes={activeGraphs[0]?.holes}
+                          isRadian={activeGraphs[0]?.isRadian}
+                          color={activeTheme.accent}
+                          equation={activeGraphs[0]?.equation}
+                        />
+                      </div>
+                    </div>
+                  )
+                ) : currentSlide.type === "intro" || currentSlideIndex === 0 ? (
+                  <div className="flex-1 flex flex-col justify-center items-start max-w-4xl py-2 overflow-y-auto pr-1">
+                    <div className="w-full rounded-2xl bg-white/[0.03] border border-white/10 p-6 sm:p-8 backdrop-blur-sm shadow-xl">
+                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 text-xs font-semibold uppercase tracking-wider mb-4">
+                        <span>Selected Problem</span>
+                      </div>
+                      <div className={cn("text-lg sm:text-xl lg:text-2xl font-medium leading-relaxed", activeTheme.text)}>
+                        <MathRenderer text={currentSlide.content} />
+                      </div>
                     </div>
                   </div>
                 ) : (
-                  <div className={cn("text-base sm:text-lg lg:text-xl font-normal leading-relaxed max-w-4xl flex-1 overflow-y-auto pr-2", activeTheme.subtext)}>
+                  <div className={cn("text-sm sm:text-base lg:text-lg font-normal leading-relaxed max-w-4xl flex-1 overflow-y-auto pr-2", activeTheme.subtext)}>
                     <MathRenderer text={currentSlide.content} />
                   </div>
                 )}
