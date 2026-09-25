@@ -12,13 +12,17 @@ export interface LessonProblem {
       subtitle?: string;
       content: string;
       notes: string;
-      type?: "intro" | "concept" | "derivation" | "graph" | "summary";
+      type?: "intro" | "concept" | "derivation" | "graph" | "summary" | "solution" | "conclusion";
+      graphs?: any[];
+      graphData?: any;
     }[];
+    graphs?: any[];
     graphData?: {
       type: string;
       equation: string;
       isRadian?: boolean;
       asymptotes?: { type: "vertical" | "horizontal" | "oblique"; value: number | string; label?: string }[];
+      symmetryAxis?: number;
       holes?: { x: number; y: number }[];
       bounds?: { minX: number; maxX: number; minY: number; maxY: number };
       functions?: {
@@ -204,6 +208,124 @@ export const MHF4U_CURRICULUM: CurriculumChapter[] = [
               { name: "Secant Slope (AROC)", value: "2" },
               { name: "Point of Tangency", value: "(1, 3)" },
               { name: "Local Max", value: "(2, 5)" }
+            ]
+          }
+        }
+      },
+      {
+        id: "C1-C3",
+        title: "Quartic Functions: Line Symmetry vs. Asymmetry",
+        expectation: "C1.2",
+        difficulty: 5,
+        prompt: "Sketch the graph of a quartic function that: a) has line symmetry, b) does not have line symmetry.",
+        preview: "f(x) = x^4 - 4x^2 \\text{ vs. } g(x) = 0.5x^4 + x^3 - 2x^2 - x + 1",
+        defaultSolution: {
+          explanation: "Complete comparative analysis and side-by-side graphs of symmetric and asymmetric quartic functions.",
+          slides: [
+            {
+              title: "Problem Statement",
+              subtitle: "MHF4U • Chapter 1: Characteristics of Polynomial Functions",
+              content: "Sketch the graph of a quartic polynomial function that:\n\na) Has line symmetry\nb) Does not have line symmetry",
+              notes: "Welcome. In this lesson, we analyze how symmetry is determined in quartic polynomial functions. We will construct and compare two distinct degree 4 functions: one with mirror reflectional symmetry across the vertical line x equals 0, and one where asymmetric cubic and linear terms eliminate line symmetry.",
+              type: "intro"
+            },
+            {
+              title: "Solution of the Problem",
+              subtitle: "Algebraic Formulation & Symmetry Conditions",
+              content: "Part a) Quartic with Line Symmetry (Axis: $x = 0$):\nChoose $f(x) = x^4 - 4x^2$:\n$$f(-x) = (-x)^4 - 4(-x)^2 = x^4 - 4x^2 = f(x) \\implies \\text{Even function (Symmetric)}$$\nEqual local minima at $(\\pm\\sqrt{2}, -4)$ mirror across $x = 0$.\n\nPart b) Quartic Without Line Symmetry:\nChoose $g(x) = 0.5x^4 + x^3 - 2x^2 - x + 1$:\n$$g(-x) = 0.5x^4 - x^3 - 2x^2 + x + 1 \\neq g(x) \\implies \\text{Odd terms break line symmetry}$$\nUnequal local minima: $y \\approx -2.71$ vs. $y \\approx -0.44$.",
+              notes: "To prove line symmetry algebraically, we test reflection. For f of x equals x to the fourth minus 4 x squared, only even exponents are present, so f of negative x equals f of x, yielding an exact axis of symmetry at x equals 0. For g of x, the cubic and linear terms tilt the graph, creating two local minima of unequal depths, proving no vertical line of symmetry exists.",
+              type: "solution"
+            },
+            {
+              title: "Evidence",
+              subtitle: "Visual Comparison: Symmetric vs. Asymmetric Quartics",
+              content: "Visual Evidence (Side-by-Side Comparison):\n\n• Case (a) $f(x) = x^4 - 4x^2$:\n  Dashed line shows the vertical axis of symmetry at $x = 0$. Both local minima reach $y = -4$.\n\n• Case (b) $g(x) = 0.5x^4 + x^3 - 2x^2 - x + 1$:\n  Asymmetric curve. Left minimum drops to $y \\approx -2.71$, right minimum only reaches $y \\approx -0.44$.",
+              notes: "Here we examine both graphs side by side on one slide. On the left, the dashed red line marks the vertical axis of symmetry at x equals 0. Every feature on the right is mirrored identically on the left. On the right, the non-zero odd powers create an uneven curve where the left minimum is significantly deeper than the right, visually demonstrating the complete absence of line symmetry.",
+              type: "graph",
+              graphs: [
+                {
+                  title: "Case (a): Line Symmetry (x = 0)",
+                  type: "function",
+                  equation: "f(x) = x^4 - 4x^2",
+                  symmetryAxis: 0,
+                  bounds: { minX: -3.5, maxX: 3.5, minY: -5.5, maxY: 6 },
+                  functions: [
+                    { mathjs: "x^4 - 4*x^2", color: "#38bdf8", equation: "f(x) = x^4 - 4x^2" }
+                  ],
+                  properties: [
+                    { name: "Axis of Symmetry", value: "x = 0" },
+                    { name: "Local Minima", value: "(\\pm\\sqrt{2}, -4)" },
+                    { name: "Local Max", value: "(0, 0)" },
+                    { name: "Degree", value: "4 (Even)" }
+                  ]
+                },
+                {
+                  title: "Case (b): No Line Symmetry",
+                  type: "function",
+                  equation: "g(x) = 0.5x^4 + x^3 - 2x^2 - x + 1",
+                  bounds: { minX: -3.5, maxX: 2.5, minY: -4.5, maxY: 6 },
+                  functions: [
+                    { mathjs: "0.5*x^4 + x^3 - 2*x^2 - x + 1", color: "#10b981", equation: "g(x) = 0.5x^4 + x^3 - 2x^2 - x + 1" }
+                  ],
+                  properties: [
+                    { name: "Line Symmetry", value: "None" },
+                    { name: "Left Min", value: "(-2.11, -2.71)" },
+                    { name: "Right Min", value: "(1.05, -0.44)" },
+                    { name: "Degree", value: "4 (Even)" }
+                  ]
+                }
+              ]
+            },
+            {
+              title: "Conclusion",
+              subtitle: "Final Equations & Summary",
+              content: "$$\\boxed{\\text{Case (a) Line Symmetry: } f(x) = x^4 - 4x^2 \\quad (\\text{Axis: } x = 0)}$$\n$$\\boxed{\\text{Case (b) No Line Symmetry: } g(x) = 0.5x^4 + x^3 - 2x^2 - x + 1}$$\n\nSummary:\n• Quartics have line symmetry if and only if all odd-degree powers around the axis vanish.\n• Any quartic whose local extrema have different $y$-coordinates cannot possess line symmetry.",
+              notes: "In conclusion, quartic polynomial functions require all odd-degree terms about their center to vanish to maintain reflectional line symmetry. When odd powers are present, they produce turning points at different heights, breaking line symmetry while preserving identical end behavior.",
+              type: "conclusion"
+            }
+          ],
+          graphs: [
+            {
+              title: "Case (a): Line Symmetry (x = 0)",
+              type: "function",
+              equation: "f(x) = x^4 - 4x^2",
+              symmetryAxis: 0,
+              bounds: { minX: -3.5, maxX: 3.5, minY: -5.5, maxY: 6 },
+              functions: [
+                { mathjs: "x^4 - 4*x^2", color: "#38bdf8", equation: "f(x) = x^4 - 4x^2" }
+              ],
+              properties: [
+                { name: "Axis of Symmetry", value: "x = 0" },
+                { name: "Local Minima", value: "(\\pm\\sqrt{2}, -4)" },
+                { name: "Local Max", value: "(0, 0)" }
+              ]
+            },
+            {
+              title: "Case (b): No Line Symmetry",
+              type: "function",
+              equation: "g(x) = 0.5x^4 + x^3 - 2x^2 - x + 1",
+              bounds: { minX: -3.5, maxX: 2.5, minY: -4.5, maxY: 6 },
+              functions: [
+                { mathjs: "0.5*x^4 + x^3 - 2*x^2 - x + 1", color: "#10b981", equation: "g(x) = 0.5x^4 + x^3 - 2x^2 - x + 1" }
+              ],
+              properties: [
+                { name: "Line Symmetry", value: "None" },
+                { name: "Left Min", value: "(-2.11, -2.71)" },
+                { name: "Right Min", value: "(1.05, -0.44)" }
+              ]
+            }
+          ],
+          graphData: {
+            type: "function",
+            equation: "f(x) = x^4 - 4x^2",
+            symmetryAxis: 0,
+            bounds: { minX: -3.5, maxX: 3.5, minY: -5.5, maxY: 6 },
+            functions: [
+              { mathjs: "x^4 - 4*x^2", color: "#38bdf8", equation: "f(x) = x^4 - 4x^2" }
+            ],
+            properties: [
+              { name: "Axis of Symmetry", value: "x = 0" },
+              { name: "Local Minima", value: "(\\pm\\sqrt{2}, -4)" }
             ]
           }
         }
