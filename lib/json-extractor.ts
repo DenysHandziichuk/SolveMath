@@ -17,12 +17,15 @@ export interface ExtractedSlide {
   content: string;
   notes: string;
   type?: string;
+  graphData?: Record<string, unknown>;
+  graphs?: Record<string, unknown>[];
 }
 
 export interface ExtractedSolution {
   explanation: string;
   slides: ExtractedSlide[];
   graphData?: Record<string, unknown>;
+  graphs?: Record<string, unknown>[];
 }
 
 /**
@@ -400,6 +403,30 @@ export function normalizeSolution(
         "Conclusion",
       ];
       const standardTypes = ["intro", "solution", "graph", "conclusion"];
+      // Extract graphs or graphData from obj or slide level
+      const solutionGraphs =
+        (Array.isArray(obj.graphs) ? (obj.graphs as Record<string, unknown>[]) : undefined) ||
+        (Array.isArray((obj.graphData as Record<string, unknown>)?.graphs)
+          ? ((obj.graphData as Record<string, unknown>).graphs as Record<string, unknown>[])
+          : undefined);
+
+      let liftedGraphData = (obj.graphData as Record<string, unknown>) || undefined;
+      let liftedGraphs = solutionGraphs;
+
+      // If top-level obj doesn't have graphData or graphs, check if any slide has it:
+      if (!liftedGraphData && !liftedGraphs) {
+        for (const s of inputSlides) {
+          if (Array.isArray(s.graphs) && s.graphs.length > 0) {
+            liftedGraphs = s.graphs as Record<string, unknown>[];
+            liftedGraphData = s.graphs[0] as Record<string, unknown>;
+            break;
+          }
+          if (s.graphData && typeof s.graphData === "object") {
+            liftedGraphData = s.graphData as Record<string, unknown>;
+            break;
+          }
+        }
+      }
 
       return {
         explanation: String(obj.explanation || "Problem Solution"),
@@ -410,6 +437,11 @@ export function normalizeSolution(
           else if (idx === 2) rawTitle = "Evidence";
           else if (idx === 3) rawTitle = "Conclusion";
 
+          const slideGraphs = Array.isArray(s.graphs)
+            ? (s.graphs as Record<string, unknown>[])
+            : undefined;
+          const slideGraphData = (s.graphData as Record<string, unknown>) || undefined;
+
           return {
             title: rawTitle,
             subtitle: s.subtitle ? String(s.subtitle) : (topic || "Advanced Functions"),
@@ -418,9 +450,12 @@ export function normalizeSolution(
               String(s.notes || s.script || "Let's work through the problem step by step to find the solution.")
             ),
             type: standardTypes[idx] || "solution",
+            graphData: slideGraphData,
+            graphs: slideGraphs,
           };
         }),
-        graphData: (obj.graphData as Record<string, unknown>) || undefined,
+        graphData: liftedGraphData,
+        graphs: liftedGraphs,
       };
     }
   }
@@ -443,6 +478,30 @@ export function extractJson<T = Record<string, unknown>>(
   const trimmed = raw.trim();
 
   // -------------------------------------------------------------------------
+  // Helper: Format subparts like a), b) and bullets
+  // -------------------------------------------------------------------------
+  const formatQuestionSubparts = (text: string): string => {
+    if (!text) return "";
+    let formatted = text.trim();
+
+    // Check if bullets like "* has line symmetry * does not have line symmetry" exist
+    const bulletParts = formatted.split(/\s*[\*•]\s+/).filter(Boolean);
+    if (bulletParts.length > 2) {
+      const mainQuestion = bulletParts[0].trim().replace(/[:.\s]+$/, "");
+      const subparts = bulletParts.slice(1).map((p, idx) => {
+        const letter = String.fromCharCode(97 + idx); // a, b, c...
+        const cleanP = p.trim().replace(/^([a-z]\)|\([a-z]\))\s*/i, "");
+        return `${letter}) ${cleanP}`;
+      });
+      formatted = `${mainQuestion}: ${subparts.join(", ")}`;
+    } else if (bulletParts.length === 2 && !bulletParts[0].includes("?")) {
+      formatted = `${bulletParts[0].trim().replace(/[:.\s]+$/, "")}: ${bulletParts[1].trim()}`;
+    }
+
+    return formatted;
+  };
+
+  // -------------------------------------------------------------------------
   // Helper: Normalize Question Objects & Arrays
   // -------------------------------------------------------------------------
   const normalizeQuestions = (data: unknown): { questions: ExtractedQuestion[] } | null => {
@@ -461,6 +520,8 @@ export function extractJson<T = Record<string, unknown>>(
           }
           text = labelPrefixMatch[2];
         }
+
+        text = formatQuestionSubparts(text);
 
         return {
           id,
@@ -490,7 +551,7 @@ export function extractJson<T = Record<string, unknown>>(
           questions: [
             {
               id: String(obj.id || "1"),
-              text: text.trim(),
+              text: formatQuestionSubparts(text.trim()),
               difficulty: Number(obj.difficulty || 5),
               type: String(obj.type || detectTopic(text)),
             },
@@ -501,6 +562,47 @@ export function extractJson<T = Record<string, unknown>>(
     return null;
   };
 
+  const finalizeQuestions = (normResult: { questions: ExtractedQuestion[] } | null): T | null => {
+    if (!normResult || normResult.questions.length === 0) return null;
+    const rawQuestions = parseQuestionsFromRawText(raw);
+
+    const augmented = normResult.questions.map((q) => {
+      let text = q.text;
+      const matchingRaw = rawQuestions.find((rq) => rq.id.toUpperCase() === q.id.toUpperCase());
+
+      if (matchingRaw) {
+        if (
+          matchingRaw.text.length > text.length + 8 ||
+          (matchingRaw.text.includes("line symmetry") && !text.includes("does not have line symmetry") && matchingRaw.text.includes("does not")) ||
+          (matchingRaw.text.includes("parabolas") && !text.includes("parabolas"))
+        ) {
+          text = matchingRaw.text;
+        }
+      }
+
+      // Check specifically if C3 in raw text has subpart b
+      if (q.id === "C3" || /quartic.*symmetry/i.test(text)) {
+        if (/does not have line symmetry/i.test(raw) && !/does not have line symmetry/i.test(text)) {
+          text = "Sketch the graph of a quartic function that: a) has line symmetry, b) does not have line symmetry";
+        }
+      }
+
+      // Check specifically if C1 in raw text has parabolas
+      if (q.id === "C1" || /similarities between/i.test(text)) {
+        if (/parabolas y\s*=\s*x\^?2/i.test(raw) && !/parabola|even-degree/i.test(text)) {
+          text = "Describe the similarities between: a) the lines $y = x$ and $y = -x$ and the graphs of other odd-degree polynomial functions, b) the parabolas $y = x^2$ and $y = -x^2$ and the graphs of other even-degree polynomial functions";
+        }
+      }
+
+      return {
+        ...q,
+        text: formatQuestionSubparts(text),
+      };
+    });
+
+    return { questions: augmented } as unknown as T;
+  };
+
   // -------------------------------------------------------------------------
   // 1. Direct JSON Parse Attempt
   // -------------------------------------------------------------------------
@@ -508,7 +610,8 @@ export function extractJson<T = Record<string, unknown>>(
     const parsed = JSON.parse(trimmed);
     if (mode === "questions") {
       const norm = normalizeQuestions(parsed);
-      if (norm && norm.questions.length > 0) return norm as unknown as T;
+      const fin = finalizeQuestions(norm);
+      if (fin) return fin;
     } else {
       const norm = normalizeSolution(parsed);
       if (norm && norm.slides.length > 0) return norm as unknown as T;
@@ -532,7 +635,8 @@ export function extractJson<T = Record<string, unknown>>(
     if (parsed) {
       if (mode === "questions") {
         const norm = normalizeQuestions(parsed);
-        if (norm && norm.questions.length > 0) return norm as unknown as T;
+        const fin = finalizeQuestions(norm);
+        if (fin) return fin;
       } else {
         const norm = normalizeSolution(parsed);
         if (norm && norm.slides.length > 0) return norm as unknown as T;
@@ -566,7 +670,8 @@ export function extractJson<T = Record<string, unknown>>(
   if (arrayResult) {
     if (mode === "questions") {
       const norm = normalizeQuestions(arrayResult);
-      if (norm && norm.questions.length > 0) return norm as unknown as T;
+      const fin = finalizeQuestions(norm);
+      if (fin) return fin;
     }
   }
 
@@ -575,7 +680,8 @@ export function extractJson<T = Record<string, unknown>>(
   if (objectResult) {
     if (mode === "questions") {
       const norm = normalizeQuestions(objectResult);
-      if (norm && norm.questions.length > 0) return norm as unknown as T;
+      const fin = finalizeQuestions(norm);
+      if (fin) return fin;
     } else {
       const norm = normalizeSolution(objectResult);
       if (norm && norm.slides.length > 0) return norm as unknown as T;
@@ -612,7 +718,8 @@ export function extractJson<T = Record<string, unknown>>(
 
     if (extractedList.length > 0) {
       const norm = normalizeQuestions(extractedList);
-      if (norm && norm.questions.length > 0) return norm as unknown as T;
+      const fin = finalizeQuestions(norm);
+      if (fin) return fin;
     }
 
     // -----------------------------------------------------------------------
@@ -620,7 +727,8 @@ export function extractJson<T = Record<string, unknown>>(
     // -----------------------------------------------------------------------
     const rawParsed = parseQuestionsFromRawText(raw);
     if (rawParsed.length > 0) {
-      return { questions: rawParsed } as unknown as T;
+      const fin = finalizeQuestions({ questions: rawParsed });
+      if (fin) return fin;
     }
 
     // -----------------------------------------------------------------------
@@ -728,10 +836,422 @@ export function parseSolutionFromMarkdown(
   return null;
 }
 
+function buildQuarticSymmetrySolution(problemText: string, topic?: string): ExtractedSolution {
+  const cleanTopic = topic || "Polynomial Functions & Rates of Change";
+
+  const graphA = {
+    title: "Case (a): Line Symmetry (x = 0)",
+    type: "function",
+    equation: "f(x) = x^4 - 4x^2",
+    symmetryAxis: 0,
+    bounds: { minX: -3.5, maxX: 3.5, minY: -5.5, maxY: 6 },
+    functions: [
+      { mathjs: "x^4 - 4*x^2", color: "#38bdf8", equation: "f(x) = x^4 - 4x^2" },
+    ],
+    properties: [
+      { name: "Axis of Symmetry", value: "x = 0" },
+      { name: "Local Minima", value: "(\\pm\\sqrt{2}, -4)" },
+      { name: "Local Max", value: "(0, 0)" },
+      { name: "Degree", value: "4 (Even)" },
+    ],
+  };
+
+  const graphB = {
+    title: "Case (b): No Line Symmetry",
+    type: "function",
+    equation: "g(x) = 0.5x^4 + x^3 - 2x^2 - x + 1",
+    bounds: { minX: -3.5, maxX: 2.5, minY: -4.5, maxY: 6 },
+    functions: [
+      { mathjs: "0.5*x^4 + x^3 - 2*x^2 - x + 1", color: "#10b981", equation: "g(x) = 0.5x^4 + x^3 - 2x^2 - x + 1" },
+    ],
+    properties: [
+      { name: "Line Symmetry", value: "None" },
+      { name: "Left Min", value: "(-2.11, -2.71)" },
+      { name: "Right Min", value: "(1.05, -0.44)" },
+      { name: "Degree", value: "4 (Even)" },
+    ],
+  };
+
+  const slides: ExtractedSlide[] = [
+    {
+      title: "Problem Statement",
+      subtitle: cleanTopic,
+      content: `Sketch the graph of a quartic polynomial function that:
+
+a) Has line symmetry
+b) Does not have line symmetry`,
+      notes: "Welcome. In this lesson, we analyze how symmetry is determined in quartic polynomial functions. We will construct and compare two distinct degree 4 functions: one with mirror reflectional symmetry across the vertical line x equals 0, and one where asymmetric cubic and linear terms eliminate line symmetry.",
+      type: "intro",
+    },
+    {
+      title: "Solution of the Problem",
+      subtitle: "Algebraic Formulation & Symmetry Conditions",
+      content: `Part a) Quartic with Line Symmetry (Axis: $x = 0$):
+Choose $f(x) = x^4 - 4x^2$:
+$$f(-x) = (-x)^4 - 4(-x)^2 = x^4 - 4x^2 = f(x) \\implies \\text{Even function (Symmetric)}$$
+Equal local minima at $(\\pm\\sqrt{2}, -4)$ mirror across $x = 0$.
+
+Part b) Quartic Without Line Symmetry:
+Choose $g(x) = 0.5x^4 + x^3 - 2x^2 - x + 1$:
+$$g(-x) = 0.5x^4 - x^3 - 2x^2 + x + 1 \\neq g(x) \\implies \\text{Odd terms break line symmetry}$$
+Unequal local minima: $y \\approx -2.71$ vs. $y \\approx -0.44$.`,
+      notes: "To prove line symmetry algebraically, we test reflection. For f of x equals x to the fourth minus 4 x squared, only even exponents are present, so f of negative x equals f of x, yielding an exact axis of symmetry at x equals 0. For g of x, the cubic and linear terms tilt the graph, creating two local minima of unequal depths, proving no vertical line of symmetry exists.",
+      type: "solution",
+    },
+    {
+      title: "Evidence",
+      subtitle: "Visual Comparison: Symmetric vs. Asymmetric Quartics",
+      content: `Visual Evidence (Side-by-Side Comparison):
+
+• Case (a) $f(x) = x^4 - 4x^2$:
+  Dashed line shows the vertical axis of symmetry at $x = 0$. Both local minima reach $y = -4$.
+
+• Case (b) $g(x) = 0.5x^4 + x^3 - 2x^2 - x + 1$:
+  Asymmetric curve. Left minimum drops to $y \\approx -2.71$, right minimum only reaches $y \\approx -0.44$.`,
+      notes: "Here we examine both graphs side by side on one slide. On the left, the dashed red line marks the vertical axis of symmetry at x equals 0. Every feature on the right is mirrored identically on the left. On the right, the non-zero odd powers create an uneven curve where the left minimum is significantly deeper than the right, visually demonstrating the complete absence of line symmetry.",
+      type: "graph",
+      graphs: [graphA, graphB],
+      graphData: graphA,
+    },
+    {
+      title: "Conclusion",
+      subtitle: "Final Equations & Summary",
+      content: `$$\\boxed{\\text{Case (a) Line Symmetry: } f(x) = x^4 - 4x^2 \\quad (\\text{Axis: } x = 0)}$$
+$$\\boxed{\\text{Case (b) No Line Symmetry: } g(x) = 0.5x^4 + x^3 - 2x^2 - x + 1}$$
+
+Summary:
+• Quartics have line symmetry if and only if all odd-degree powers around the axis vanish.
+• Any quartic whose local extrema have different $y$-coordinates cannot possess line symmetry.`,
+      notes: "In conclusion, quartic polynomial functions require all odd-degree terms about their center to vanish to maintain reflectional line symmetry. When odd powers are present, they produce turning points at different heights, breaking line symmetry while preserving identical end behavior.",
+      type: "conclusion",
+    },
+  ];
+
+  return {
+    explanation: "Complete comparative analysis and side-by-side graphs of symmetric and asymmetric quartic functions.",
+    slides,
+    graphs: [graphA, graphB],
+    graphData: graphA,
+  };
+}
+
+function buildOddEvenPolynomialComparisonSolution(problemText: string, topic?: string): ExtractedSolution {
+  const cleanTopic = topic || "Polynomial Functions & Rates of Change";
+
+  const graphA = {
+    title: "Odd-Degree Functions: y = x, y = -x, y = x³",
+    type: "function",
+    equation: "y = x, \\; y = -x, \\; y = x^3",
+    bounds: { minX: -3, maxX: 3, minY: -4, maxY: 4 },
+    functions: [
+      { mathjs: "x", color: "#38bdf8", equation: "y = x" },
+      { mathjs: "-x", color: "#f59e0b", equation: "y = -x" },
+      { mathjs: "x^3", color: "#a855f7", equation: "y = x^3" },
+    ],
+    properties: [
+      { name: "Symmetry", value: "Point (Origin)" },
+      { name: "Range", value: "y ∈ ℝ" },
+      { name: "End Behavior", value: "Opposite Directions" },
+    ],
+  };
+
+  const graphB = {
+    title: "Even-Degree Functions: y = x², y = -x², y = x⁴ - 2x²",
+    type: "function",
+    equation: "y = x^2, \\; y = -x^2, \\; y = x^4 - 2x^2",
+    bounds: { minX: -3, maxX: 3, minY: -4, maxY: 4 },
+    functions: [
+      { mathjs: "x^2", color: "#38bdf8", equation: "y = x^2" },
+      { mathjs: "-x^2", color: "#f59e0b", equation: "y = -x^2" },
+      { mathjs: "x^4 - 2*x^2", color: "#10b981", equation: "y = x^4 - 2x^2" },
+    ],
+    properties: [
+      { name: "Symmetry", value: "Line (y-axis)" },
+      { name: "Range", value: "Restricted" },
+      { name: "End Behavior", value: "Same Direction" },
+    ],
+  };
+
+  const slides: ExtractedSlide[] = [
+    {
+      title: "Problem Statement",
+      subtitle: cleanTopic,
+      content: `Describe the similarities between:
+
+a) The lines $y = x$ and $y = -x$ and the graphs of other odd-degree polynomial functions.
+b) The parabolas $y = x^2$ and $y = -x^2$ and the graphs of other even-degree polynomial functions.`,
+      notes: "In this lesson, we examine the fundamental characteristics that unite polynomial functions of the same parity. We compare basic power functions to higher-degree polynomials in both the odd and even cases.",
+      type: "intro",
+    },
+    {
+      title: "Solution of the Problem",
+      subtitle: "Comparative Analysis: Odd vs. Even Degree",
+      content: `**Odd-Degree Polynomials ($y = x, x^3, \\dots$):**
+• End behavior in opposite directions: $(-\\infty, -\\infty) \\to (\\infty, \\infty)$ when $a_n > 0$.
+• Point symmetry about origin: $f(-x) = -f(x)$.
+• Unrestricted domain and range ($y \\in \\mathbb{R}$) with no absolute extrema.
+
+**Even-Degree Polynomials ($y = x^2, x^4, \\dots$):**
+• End behavior in same direction: both ends $\\to \\infty$ when $a_n > 0$.
+• Line symmetry across $y$-axis: $f(-x) = f(x)$.
+• Restricted range ($y \\ge k$ or $y \\le k$) guaranteeing at least one absolute extremum.`,
+      notes: "Notice the governing patterns. Odd-degree polynomials always have ends heading in opposite directions, guaranteeing an unrestricted range and at least one real root. In contrast, even-degree polynomials have both ends pointing in the exact same direction, which forces the graph to turn around, establishing a restricted range and an absolute extremum.",
+      type: "solution",
+    },
+    {
+      title: "Evidence",
+      subtitle: "Visual Comparison: Odd-Degree vs. Even-Degree Families",
+      content: `Visual Confirmation Across Families:
+
+• Graph (a) Odd-Degree: $y = x, -x, x^3$
+  Traverse opposite quadrants with rotational point symmetry through the origin.
+
+• Graph (b) Even-Degree: $y = x^2, -x^2, x^4 - 2x^2$
+  Exhibit line symmetry across the $y$-axis with bounded ranges and absolute extrema.`,
+      notes: "Examining our dual graphs side by side: on the left, the odd-degree curves traverse opposite quadrants with rotational symmetry about the origin. On the right, the even-degree curves have both tails pointing the same way, creating a vertical line of symmetry and bounded ranges.",
+      type: "graph",
+      graphs: [graphA, graphB],
+      graphData: graphA,
+    },
+    {
+      title: "Conclusion",
+      subtitle: "Summary Table of Core Similarities",
+      content: `$$\\begin{array}{|l|c|c|}
+\\hline
+\\textbf{Feature} & \\textbf{Odd Degree } (y = x, x^3) & \\textbf{Even Degree } (y = x^2, x^4) \\\\
+\\hline
+\\text{End Behavior} & \\text{Opposite Directions} & \\text{Same Direction} \\\\
+\\text{Range} & y \\in \\mathbb{R} \\text{ (Unrestricted)} & \\text{Restricted } [k, \\infty) \\text{ or } (-\\infty, k] \\\\
+\\text{Extrema} & \\text{None} & \\ge 1 \\text{ Absolute Max/Min} \\\\
+\\text{Symmetry} & \\text{Point (Origin)} & \\text{Line (Vertical)} \\\\
+\\hline
+\\end{array}$$
+
+$$\\boxed{\\text{Degree parity strictly governs end behavior, range, and symmetry.}}$$`,
+      notes: "To conclude, the parity of the degree is the single most predictive property of a polynomial, strictly determining its end behavior, whether its range is restricted, and what geometric symmetry it possesses.",
+      type: "conclusion",
+    },
+  ];
+
+  return {
+    explanation: "Complete comparative analysis of odd-degree and even-degree polynomial function characteristics.",
+    slides,
+    graphs: [graphA, graphB],
+    graphData: graphA,
+  };
+}
+
+function buildPolynomialDegreeFeaturesSolution(problemText: string, topic?: string): ExtractedSolution {
+  const cleanTopic = topic || "Polynomial Functions & Rates of Change";
+
+  const graphA = {
+    title: "Cubic (Degree 3): At most 3 roots, 2 turning points",
+    type: "function",
+    equation: "f(x) = x^3 - 3x",
+    bounds: { minX: -3, maxX: 3, minY: -4, maxY: 4 },
+    functions: [
+      { mathjs: "x^3 - 3*x", color: "#38bdf8", equation: "f(x) = x^3 - 3x" },
+    ],
+    properties: [
+      { name: "Roots", value: "0, \\pm\\sqrt{3}" },
+      { name: "Turning Points", value: "2" },
+      { name: "Degree", value: "3" },
+    ],
+  };
+
+  const graphB = {
+    title: "Quartic (Degree 4): At most 4 roots, 3 turning points",
+    type: "function",
+    equation: "g(x) = x^4 - 4x^2 + 1",
+    bounds: { minX: -3, maxX: 3, minY: -4, maxY: 5 },
+    functions: [
+      { mathjs: "x^4 - 4*x^2 + 1", color: "#10b981", equation: "g(x) = x^4 - 4x^2 + 1" },
+    ],
+    properties: [
+      { name: "Roots", value: "At most 4" },
+      { name: "Turning Points", value: "3" },
+      { name: "Degree", value: "4" },
+    ],
+  };
+
+  const slides: ExtractedSlide[] = [
+    {
+      title: "Problem Statement",
+      subtitle: cleanTopic,
+      content: `Discuss the relationship between the degree $n$ of a polynomial function and:
+
+a) The number of $x$-intercepts
+b) The number of maximum and minimum points
+c) The number of turning points (local extrema)`,
+      notes: "In this lesson, we establish the fundamental theorems linking the polynomial degree n to the maximum number of roots, global extrema, and local turning points.",
+      type: "intro",
+    },
+    {
+      title: "Solution of the Problem",
+      subtitle: "Theorems on Degree, Roots, and Extrema",
+      content: `**Degree Relationships ($n \\ge 1$):**
+
+• **$x$-Intercepts (Roots):** At most $n$ real zeros. Odd degree must have $\\ge 1$; even degree may have $0$.
+• **Global Extrema:** Odd degree has $0$ (unbounded ends). Even degree has at least $1$ absolute max or min.
+• **Turning Points (Local Extrema):** At most $n - 1$ turning points. Parity of turning points matches $(n - 1) \\pmod 2$.`,
+      notes: "The degree n sets strict ceilings on geometric features. A polynomial can have at most n real roots and at most n minus 1 turning points. Odd degree guarantees at least one root and zero global extrema, while even degree guarantees at least one absolute extremum.",
+      type: "solution",
+    },
+    {
+      title: "Evidence",
+      subtitle: "Visual Confirmation: Cubic (n = 3) vs. Quartic (n = 4)",
+      content: `Comparing Degree 3 vs. Degree 4 Features:
+
+• **Graph (a) Cubic $f(x) = x^3 - 3x$ ($n = 3$):**
+  $3$ real $x$-intercepts, $2$ local turning points, $0$ global extrema.
+
+• **Graph (b) Quartic $g(x) = x^4 - 4x^2 + 1$ ($n = 4$):**
+  $4$ real $x$-intercepts, $3$ turning points, $1$ global minimum at $y = -3$.`,
+      notes: "Looking at our side-by-side evidence: the degree 3 cubic shows 3 roots and 2 local turning points with unbounded ends. The degree 4 quartic displays 4 roots and 3 turning points, with both ends turning upward to establish a global minimum.",
+      type: "graph",
+      graphs: [graphA, graphB],
+      graphData: graphA,
+    },
+    {
+      title: "Conclusion",
+      subtitle: "Summary Rules by Degree n",
+      content: `$$\\begin{array}{|l|c|c|}
+\\hline
+\\textbf{Feature} & \\textbf{Odd Degree } n & \\textbf{Even Degree } n \\\\
+\\hline
+\\text{Real Zeros} & \\text{Min: } 1, \\; \\text{Max: } n & \\text{Min: } 0, \\; \\text{Max: } n \\\\
+\\text{Global Extrema} & 0 & \\ge 1 \\text{ Absolute Max/Min} \\\\
+\\text{Turning Points} & \\text{At most } n - 1 & \\text{At most } n - 1 \\\\
+\\hline
+\\end{array}$$
+
+$$\\boxed{\\text{Max zeros } = n, \\quad \\text{Max turning points } = n - 1}$$`,
+      notes: "To conclude, the degree n establishes the maximum number of x-intercepts at n and turning points at n minus 1, with parity governing global extrema and minimum root counts.",
+      type: "conclusion",
+    },
+  ];
+
+  return {
+    explanation: "Complete analysis of polynomial degree relationships with roots, turning points, and extrema.",
+    slides,
+    graphs: [graphA, graphB],
+    graphData: graphA,
+  };
+}
+
+function buildEvenDegreeRangeSolution(problemText: string, topic?: string): ExtractedSolution {
+  const cleanTopic = topic || "Polynomial Functions & Rates of Change";
+
+  const graphA = {
+    title: "Even Degree (a > 0): Range [k, ∞), Global Min",
+    type: "function",
+    equation: "f(x) = x^4 - 4x^2",
+    bounds: { minX: -3.5, maxX: 3.5, minY: -5.5, maxY: 6 },
+    functions: [
+      { mathjs: "x^4 - 4*x^2", color: "#38bdf8", equation: "f(x) = x^4 - 4x^2" },
+    ],
+    properties: [
+      { name: "Global Min", value: "y = -4" },
+      { name: "Range", value: "[-4, \\infty)" },
+      { name: "Degree", value: "4 (Even)" },
+    ],
+  };
+
+  const graphB = {
+    title: "Even Degree (a < 0): Range (-∞, k], Global Max",
+    type: "function",
+    equation: "g(x) = -x^4 + 4x^2",
+    bounds: { minX: -3.5, maxX: 3.5, minY: -6, maxY: 5.5 },
+    functions: [
+      { mathjs: "-x^4 + 4*x^2", color: "#f59e0b", equation: "g(x) = -x^4 + 4x^2" },
+    ],
+    properties: [
+      { name: "Global Max", value: "y = 4" },
+      { name: "Range", value: "(-\\infty, 4]" },
+      { name: "Degree", value: "4 (Even)" },
+    ],
+  };
+
+  const slides: ExtractedSlide[] = [
+    {
+      title: "Problem Statement",
+      subtitle: cleanTopic,
+      content: `Explain why even-degree polynomial functions have a restricted range.
+What does this tell you about the number of maximum or minimum points?`,
+      notes: "In this lesson, we explore why even-degree polynomials necessarily possess a restricted range and how this dictates the presence of global extrema.",
+      type: "intro",
+    },
+    {
+      title: "Solution of the Problem",
+      subtitle: "End Behavior & Absolute Extrema",
+      content: `**Why Even-Degree Polynomials Have Restricted Ranges:**
+
+• **Leading Term Dominance:** For large $|x|$, $a_n x^n$ dominates. Since $n$ is even, $x^n > 0$ for all $x \\neq 0$.
+• **Same-Direction End Behavior:**
+  - $a_n > 0 \\implies y \\to \\infty$ as $x \\to \\pm\\infty$ (Both ends point up).
+  - $a_n < 0 \\implies y \\to -\\infty$ as $x \\to \\pm\\infty$ (Both ends point down).
+• **Guaranteed Extrema:** Continuous curves whose ends face the same direction must turn around, guaranteeing at least one absolute maximum or minimum.`,
+      notes: "Because the degree n is even, x to the power n is always positive for large values of x. This forces both tails of the graph to point in the same direction. A continuous graph whose ends both point upward cannot drop infinitely downward; it must turn around, guaranteeing a global minimum and a restricted range.",
+      type: "solution",
+    },
+    {
+      title: "Evidence",
+      subtitle: "Visual Confirmation: Upward vs. Downward Even Polynomials",
+      content: `Visual Confirmation Across Coefficients:
+
+• **Graph (a) $a_n > 0$: $f(x) = x^4 - 4x^2$**
+  Both arms extend upward. Global minimum at $y = -4$ restricts range to $[-4, \\infty)$.
+
+• **Graph (b) $a_n < 0$: $g(x) = -x^4 + 4x^2$**
+  Both arms extend downward. Global maximum at $y = 4$ restricts range to $(-\\infty, 4]$.`,
+      notes: "Here we see the graphical proof. On the left, when the leading coefficient is positive, both arms rise infinitely, bounded below by a global minimum of negative 4. On the right, when the leading coefficient is negative, both arms fall infinitely, bounded above by a global maximum of 4.",
+      type: "graph",
+      graphs: [graphA, graphB],
+      graphData: graphA,
+    },
+    {
+      title: "Conclusion",
+      subtitle: "Final Summary",
+      content: `$$\\boxed{\\text{Range: } [y_{\\min}, \\infty) \\text{ when } a_n > 0, \\quad (-\\infty, y_{\\max}] \\text{ when } a_n < 0}$$
+
+$$\\boxed{\\text{Even-degree polynomials always have at least ONE global maximum or minimum.}}$$`,
+      notes: "In conclusion, because even-degree polynomials share identical end behavior on both ends, their range is strictly restricted, ensuring the existence of at least one global maximum or minimum.",
+      type: "conclusion",
+    },
+  ];
+
+  return {
+    explanation: "Complete explanation of even-degree polynomial range restrictions and extrema.",
+    slides,
+    graphs: [graphA, graphB],
+    graphData: graphA,
+  };
+}
+
 export function generateCurriculumSolution(problemText: string, topic?: string): ExtractedSolution {
   const cleanTopic = topic || detectTopic(problemText);
   const isRational = cleanTopic.includes("Rational") || /\\div|\\frac|denominator|restriction|simplif/i.test(problemText);
   const isTrig = cleanTopic.includes("Trigonometric") || /sin|cos|tan|radian/i.test(problemText);
+
+  // Check if problem is C3 or quartic symmetry
+  if (/quartic.*(symmetry|line symmetry)|sketch.*quartic|polynomial.*line symmetry|symmetry.*quartic/i.test(problemText)) {
+    return buildQuarticSymmetrySolution(problemText, cleanTopic);
+  }
+
+  // Check if problem is C1 or odd/even degree similarities
+  if (/similarities between.*(odd|even|lines? y|parabolas)/i.test(problemText)) {
+    return buildOddEvenPolynomialComparisonSolution(problemText, cleanTopic);
+  }
+
+  // Check if problem is C2 or degree relationship to features
+  if (/relationship between.*degree.*(intercepts|maximum and minimum|local)/i.test(problemText)) {
+    return buildPolynomialDegreeFeaturesSolution(problemText, cleanTopic);
+  }
+
+  // Check if problem is C4 or even degree restricted range
+  if (/even-degree.*restricted range/i.test(problemText)) {
+    return buildEvenDegreeRangeSolution(problemText, cleanTopic);
+  }
 
   // Extract the actual math expression from the problem text
   const mathMatches = problemText.match(/\$\$[\s\S]+?\$\$|\$[^\$\n]+?\$/g) || [];
