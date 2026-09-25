@@ -26,48 +26,69 @@ export async function POST(req: NextRequest) {
 
     const needsGraph = isGeometryOrGraphingTask(questionText, questionTopic);
 
+    const isComparison = /\b(compare|contrast|similarities|symmetry|versus|vs|cases?|a\).*b\))\b/i.test(questionText) ||
+      /quartic.*symmetry/i.test(questionText);
+
     const systemPrompt = `You are an expert mathematics educator and presentation designer.
 Generate an authentic, clear, and student-friendly classroom presentation that solves this problem.
 Topic: ${questionTopic}
-Problem Classification: ${needsGraph ? "Geometry / Graphing / Visual Representation" : "Pure Algebra / Symbolic Manipulation"}
+Problem Classification: ${needsGraph ? (isComparison ? "Comparative Graphing / Multi-Function Analysis" : "Geometry / Graphing / Visual Representation") : "Pure Algebra / Symbolic Manipulation"}
 
-TONE AND LANGUAGE GUIDELINES (MAKE IT SOUND HUMAN, NOT AI):
-- Write like a real teacher speaking and writing on a whiteboard: clear, simple, and direct.
-- Avoid robotic AI phrases and cliches. NEVER include headers or bullet points like "Key Takeaways", "Governing Conditions", "Governing Mathematical Conditions", "Formal Mathematical Justification", or "Problem Formulation".
-- Do NOT invent extra problem instructions. Never say "State all governing mathematical conditions" unless the user's question explicitly asks for that.
-- Keep the language simple and easy for students to read at a glance, but ALWAYS use correct mathematical terms naturally (e.g. domain, range, restrictions, reciprocal, factor, cancel, common factors, degree, leading coefficient, asymptote, intercept, evaluate).
-- Speaker notes (notes): Write natural, conversational script that sounds like a friendly human teacher speaking to students.
+CRITICAL SLIDE DESIGN RULES (STRICTLY CONCISE SLIDES, NO TEXT CLUTTER, NO SCROLLBARS):
+- SLIDE 1: "Problem Statement" (type: "intro")
+  - MUST ONLY contain the exact problem statement chosen by the user!
+  - NEVER include extraneous background lectures, "Key Definitions & Concepts", general formulas, or textbook definitions on Slide 1.
+  - Keep it clean, direct, and concise so it fits beautifully without any vertical scrolling.
+  - Put the spoken classroom introduction into the speaker notes ('notes').
+- SLIDE 2: "Solution of the Problem" (type: "solution")
+  - Keep the written text CONCISE ("a bit of wording").
+  - Present the essential algebraic steps and formulas clearly (use $...$ and $$...$$).
+  - DO NOT output giant walls of text, dense paragraphs, or repetitive bullet points.
+  - Detailed teacher explanations and oral steps MUST go into the speaker notes ('notes'), NOT into the slide content!
+- SLIDE 3: "Evidence" (type: "graph")
+  - Focus is the visual graph evidence!
+  - The written content must be 2-3 short bullet observations highlighting what the graph shows (e.g. axis of symmetry, turning points, roots).
+- SLIDE 4: "Conclusion" (type: "conclusion")
+  - Final answer clearly stated in \\boxed{...}.
+  - 1 or 2 concise summary bullet points.
+  - Concluding verbal takeaway in the speaker notes ('notes').
 
-SLIDE STRUCTURE (${needsGraph ? "EXACTLY 4 SLIDES — GRAPH HELPS SHOW SOLUTION" : "EXACTLY 3 SLIDES — NO GRAPH NEEDED, PURE ALGEBRA"}):
+TONE AND RUBRIC GUIDELINES (MEET 5/5 EXCEED EXPECTATIONS):
+- Oral Communication (notes): Write complete, concise, articulate speaker notes for every slide. Guide students naturally through the reasoning.
+- Written Reasoning & Visuals: Clean mathematical expressions ($f(-x) = f(x)$, $x \\in \\mathbb{R}$, degree, line of symmetry $x = h$, turning points, end behavior).
+- When a problem asks to sketch or compare two functions (e.g. C3 quartic with line symmetry vs without line symmetry, or C1 odd vs even functions):
+  You MUST provide TWO separate graphs in the 'graphs' array on the Evidence slide or root so they can be compared side-by-side on the same slide!
+  - Case (a) Quartic with line symmetry: Choose $f(x) = x^4 - 4x^2$ (only even powers, symmetric W-shape, axis of symmetry $x = 0$, symmetric minima at $(\\pm\\sqrt{2}, -4)$). Include "symmetryAxis": 0.
+  - Case (b) Quartic WITHOUT line symmetry: Choose $g(x) = 0.5x^4 + x^3 - 2x^2 - x + 1$ (odd powers with unequal minima depths $y \\approx -2.71$ vs $y \\approx -0.44$, breaking symmetry). DO NOT choose an even polynomial like $x^4 - 2x^2 + 1$ which is symmetric!
+- CRITICAL MATHJS FORMAT:
+  - The "mathjs" field MUST be a clean mathjs formula like "x^4 - 4*x^2" or "0.5*x^4 + x^3 - 2*x^2 - x + 1".
+  - NEVER put MathJax, JavaScript, LaTeX commands (\\frac, \\left), or HTML in mathjs.
+
+SLIDE STRUCTURE (${needsGraph ? "EXACTLY 4 SLIDES — GRAPH EVIDENCE INCLUDED" : "EXACTLY 3 SLIDES — PURE ALGEBRA"}):
 ${
   needsGraph
     ? `1. Slide 1: "Problem Statement" (type: "intro")
-   - State the problem clearly using $...$ and $$...$$.
-   - List what is given and what we need to solve or graph.
-   - Notes: Natural 1-2 sentence spoken intro framing the question.
+   - State ONLY the problem that was chosen clearly using $...$ and $$...$$. No extraneous concepts or general formulas.
+   - Notes: Natural 2-3 sentence spoken intro framing the question.
 2. Slide 2: "Solution of the Problem" (type: "solution")
-   - Show the step-by-step mathematical work with clear steps.
-   - Notes: Friendly teacher script guiding students through the derivation.
+   - Show concise algebraic steps and equations ("a bit of wording").
+   - For symmetry questions, test $f(-x) = f(x)$ vs $g(-x) \\neq g(x)$.
+   - Notes: Complete teacher script guiding students through the derivation.
 3. Slide 3: "Evidence" (type: "graph")
-   - Visual evidence: Explain how the graph shows and verifies the solution (key points, intercepts, asymptotes, or turning points).
-   - Notes: Spoken notes pointing students to what the graph reveals.
+   - Visual graph comparison: 2-3 concise bullets on what the graphs show.
+   - Notes: Spoken notes comparing the visual curves side-by-side.
 4. Slide 4: "Conclusion" (type: "conclusion")
-   - State the final answer clearly in a \\boxed{...}.
-   - Summarize the final result simply and cleanly (NO "Key Takeaways" header).
+   - State final formulas clearly in \\boxed{...} with 1-2 core takeaways.
    - Notes: Short concluding spoken takeaway.`
     : `1. Slide 1: "Problem Statement" (type: "intro")
-   - State the problem clearly using $...$ and $$...$$.
-   - List what is given and what we need to find or simplify.
-   - Notes: Natural 1-2 sentence spoken intro framing the problem.
+   - State ONLY the problem that was chosen clearly using $...$ and $$...$$.
+   - Notes: Spoken intro framing the problem.
 2. Slide 2: "Solution of the Problem" (type: "solution")
-   - Show the step-by-step algebraic steps cleanly and simply.
-   - Use clear steps (e.g. Step 1, Step 2) with brief, direct explanations.
-   - Notes: Friendly teacher script explaining the algebraic steps.
+   - Show concise algebraic steps and equations ("a bit of wording").
+   - Notes: Teacher script explaining the algebraic steps.
 3. Slide 3: "Conclusion" (type: "conclusion")
    - State the final simplified answer in a \\boxed{...}.
-   - State any restrictions or final values clearly (NO "Key Takeaways" header).
-   - Notes: Short concluding sentence wrapping up the result.
-   (IMPORTANT: Do NOT include an Evidence slide — evidence is only needed if a graph helps to show the solution).`
+   - Notes: Short concluding sentence wrapping up the result.`
 }
 
 Return raw JSON matching this structure:
@@ -90,8 +111,8 @@ Return raw JSON matching this structure:
     }${needsGraph ? `,
     {
       "title": "Evidence",
-      "subtitle": "Visual Graph Verification",
-      "content": "Points / intercepts / asymptotes shown on graph...",
+      "subtitle": "Visual Graph Comparison",
+      "content": "Key features shown on graphs...",
       "notes": "Natural spoken notes for slide 3",
       "type": "graph"
     }` : ""},
@@ -102,7 +123,24 @@ Return raw JSON matching this structure:
       "notes": "Natural spoken notes for final slide",
       "type": "conclusion"
     }
-  ]${needsGraph ? `,
+  ]${needsGraph ? (isComparison ? `,
+  "graphs": [
+    {
+      "title": "Case (a): Line Symmetry (x = 0)",
+      "equation": "f(x) = x^4 - 4x^2",
+      "symmetryAxis": 0,
+      "bounds": { "minX": -3.5, "maxX": 3.5, "minY": -5.5, "maxY": 6 },
+      "functions": [{ "equation": "f(x) = x^4 - 4x^2", "mathjs": "x^4 - 4*x^2", "color": "#38bdf8" }],
+      "properties": [{ "name": "Axis of Symmetry", "value": "x = 0" }, { "name": "Minima", "value": "(\\pm\\sqrt{2}, -4)" }]
+    },
+    {
+      "title": "Case (b): No Line Symmetry",
+      "equation": "g(x) = 0.5x^4 + x^3 - 2x^2 - x + 1",
+      "bounds": { "minX": -3.5, "maxX": 2.5, "minY": -4, "maxY": 6 },
+      "functions": [{ "equation": "g(x) = 0.5x^4 + x^3 - 2x^2 - x + 1", "mathjs": "0.5*x^4 + x^3 - 2*x^2 - x + 1", "color": "#10b981" }],
+      "properties": [{ "name": "Axis of Symmetry", "value": "None" }, { "name": "Unequal Minima", "value": "y ≈ -2.71 vs -0.44" }]
+    }
+  ]` : `,
   "graphData": {
     "type": "function",
     "equation": "f(x) = ...",
@@ -111,16 +149,15 @@ Return raw JSON matching this structure:
     "asymptotes": [],
     "holes": [],
     "properties": []
-  }` : ""}
+  }`) : ""}
 }
 
 STRICT CONSTRAINTS:
 - EXACTLY ${needsGraph ? "4 slides" : "3 slides"} in the slides array.
 - Slide titles MUST be: ${needsGraph ? '"Problem Statement", "Solution of the Problem", "Evidence", and "Conclusion"' : '"Problem Statement", "Solution of the Problem", and "Conclusion"'}.
 - Slide types MUST be: ${needsGraph ? '"intro", "solution", "graph", and "conclusion"' : '"intro", "solution", and "conclusion"'}.
-- SOLVE the actual math problem directly. Never output generic placeholders.
+- Always provide valid pure mathematical formulas for "mathjs" (e.g. "x^4 - 4*x^2").
 - Use $...$ for inline math, $$...$$ for display math in content strings.
-- Use \\n to separate lines in content strings.
 - Respond with raw JSON only. No markdown fences, no conversational preamble.`;
 
     const userPrompt = needsGraph
