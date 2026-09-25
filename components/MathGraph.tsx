@@ -3,6 +3,7 @@
 import { MathRenderer } from "./MathRenderer";
 import { compile } from "mathjs";
 import { useMemo } from "react";
+import { cn } from "@/lib/utils";
 
 interface Point {
   x: number;
@@ -27,7 +28,7 @@ interface Hole {
   y: number;
 }
 
-interface MathGraphProps {
+export interface MathGraphProps {
   functions?: GraphFunction[];
   points?: Point[];
   properties?: { name: string; value: string }[];
@@ -37,6 +38,9 @@ interface MathGraphProps {
   isRadian?: boolean;
   color?: string;
   equation?: string;
+  title?: string;
+  symmetryAxis?: number;
+  compact?: boolean;
 }
 
 export function MathGraph({
@@ -49,11 +53,14 @@ export function MathGraph({
   isRadian = false,
   color = "#3b82f6",
   equation,
+  title,
+  symmetryAxis,
+  compact = false,
 }: MathGraphProps) {
-  // Coordinate Canvas Dimensions (16:10 or 16:9 ratio)
-  const width = 640;
-  const height = 380;
-  const padding = 44;
+  // Coordinate Canvas Dimensions (responsive based on compact mode)
+  const width = compact ? 520 : 640;
+  const height = compact ? 340 : 380;
+  const padding = compact ? 36 : 44;
 
   const minX = bounds?.minX ?? (isRadian ? -0.5 : -10);
   const maxX = bounds?.maxX ?? (isRadian ? 2 * Math.PI + 0.5 : 10);
@@ -150,9 +157,23 @@ export function MathGraph({
 
 
   return (
-    <div className="relative flex flex-col items-center justify-center p-3 sm:p-5 bg-slate-950/80 rounded-2xl border border-slate-800/80 w-full max-w-3xl shadow-xl backdrop-blur-md group overflow-hidden">
+    <div
+      className={cn(
+        "relative flex flex-col items-center justify-center bg-slate-950/80 rounded-2xl border border-slate-800/80 w-full shadow-xl backdrop-blur-md group overflow-hidden transition-all",
+        compact ? "p-2 sm:p-3 max-w-full" : "p-3 sm:p-5 max-w-3xl"
+      )}
+    >
+      {/* Title Badge (e.g. for comparing graphs) */}
+      {title && (
+        <div className="absolute top-3 right-3 z-20 pointer-events-none">
+          <div className="bg-slate-900/90 border border-slate-700/80 px-2.5 py-1 rounded-lg text-xs font-bold text-slate-100 shadow-md backdrop-blur-sm">
+            <MathRenderer text={title} inline />
+          </div>
+        </div>
+      )}
+
       {/* Legend & Equation Badges */}
-      <div className="absolute top-4 left-4 z-20 flex flex-col gap-1.5 max-w-[70%] pointer-events-none">
+      <div className="absolute top-3 left-3 z-20 flex flex-col gap-1.5 max-w-[65%] pointer-events-none">
         {displayFunctions.map(
           (fn, idx) =>
             fn.equation && (
@@ -320,6 +341,32 @@ export function MathGraph({
           }
           return null;
         })}
+
+        {/* Line of Symmetry (Dashed Vertical Line with Label) */}
+        {symmetryAxis !== undefined && !isNaN(symmetryAxis) && (
+          <g key="symmetry-axis-line">
+            <line
+              x1={scaleX(symmetryAxis)}
+              y1={padding - 6}
+              x2={scaleX(symmetryAxis)}
+              y2={height - padding + 6}
+              stroke="#f43f5e"
+              strokeWidth={compact ? "2" : "2.5"}
+              strokeDasharray="5,4"
+              strokeOpacity="0.95"
+            />
+            <text
+              x={scaleX(symmetryAxis) + 6}
+              y={padding + 8}
+              fontSize={compact ? "9" : "10"}
+              fill="#f43f5e"
+              fontWeight="bold"
+              fontFamily="inherit"
+            >
+              Axis of Symmetry (x = {symmetryAxis})
+            </text>
+          </g>
+        )}
 
         {/* Function Curves */}
         {displayFunctions.map((fn, idx) => {
