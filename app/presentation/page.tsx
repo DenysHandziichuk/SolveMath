@@ -2,22 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { SolutionDisplay } from "@/components/SolutionDisplay";
+import { SolutionDisplay, type Solution } from "@/components/SolutionDisplay";
 import { Loader2 } from "lucide-react";
-
-interface Solution {
-  explanation: string;
-  slides: {
-    title: string;
-    content: string;
-    notes: string;
-  }[];
-  graphData?: {
-    type: string;
-    equation: string;
-    points: { x: number; y: number }[];
-  };
-}
 
 export default function PresentationPage() {
   const router = useRouter();
