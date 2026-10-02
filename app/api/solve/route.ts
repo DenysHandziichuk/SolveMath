@@ -51,7 +51,7 @@ SLIDE DESIGN & FIT RULES (3 OR 4 SLIDES TOTAL):
   - For multi-part problems: 2 Solution slides:
     - Slide 2: Subtitle: "Part a: [Topic]" (or "Part 1: [Topic]"), solving the first part.
     - Slide 3: Subtitle: "Part b: [Topic]" (or "Part 2: [Topic]"), solving the second part.
-  - Content: Comprehensive, step-by-step mathematical explanation / derivation. Thorough, elegant, and 100% mathematically correct. Use $...$ for inline math and $$...$$ for display equations.
+  - Content: Comprehensive, step-by-step mathematical explanation / derivation. Thorough, elegant, and 100% mathematically correct. Use $...$ for inline math and $$...$$ for display equations. Wrap only genuine math expressions in $...$ (e.g. $f(x) = x^2$); never put regular English words or full sentences inside $...$.
   - MULTI-PART PROBLEMS: You MUST thoroughly solve BOTH parts! NEVER omit any subpart or solve only one!
   - Speaker notes ('notes'): Complete teacher script guiding students step-by-step through the derivation.
 
@@ -102,7 +102,7 @@ STRICT CONSTRAINTS:
 - 3 slides for standard problems, or 4 slides when breaking long/multi-part explanations into 2 solution slides.
 - Slide titles MUST be: "Problem", "Solution", and "Conclusion".
 - Slide types MUST be: "intro", "solution", and "conclusion".
-- Use $...$ for inline math, $$...$$ for display math in content strings.
+- Use $...$ for inline math, $$...$$ for display math in content strings. NEVER wrap regular English words or full sentences inside $...$.
 - Respond with raw JSON only. No markdown fences, no conversational preamble.`;
 
     const userPrompt = `Solve this problem step-by-step and generate the presentation (Problem, Solution [1 or 2 slides if multi-part], Conclusion):\n${questionText}`;
