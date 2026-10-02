@@ -337,7 +337,7 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
         <div
           id="presentation-slide-stage"
           className={cn(
-            "relative aspect-video w-full max-w-[calc((100dvh-48px)*16/9)] max-h-[calc(100dvh-48px)] flex flex-col justify-between p-5 sm:p-7 lg:p-8 rounded-2xl border shadow-2xl overflow-hidden transition-all duration-300",
+            "relative aspect-video w-full max-w-[calc((100dvh-48px)*16/9)] max-h-[calc(100dvh-48px)] flex flex-col justify-between p-4 sm:p-6 lg:p-7 rounded-2xl border shadow-2xl overflow-hidden transition-all duration-300",
             activeTheme.slideBg,
             activeTheme.slideBorder
           )}
@@ -521,18 +521,21 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
                     </div>
                   )
                 ) : currentSlide.type === "intro" || currentSlideIndex === 0 ? (
-                  <div className="flex-1 flex flex-col justify-center items-start max-w-4xl py-2 overflow-y-auto pr-1">
-                    <div className="w-full rounded-2xl bg-white/[0.03] border border-white/10 p-6 sm:p-8 backdrop-blur-sm shadow-xl">
-                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 text-xs font-semibold uppercase tracking-wider mb-4">
-                        <span>Selected Problem</span>
-                      </div>
-                      <div className={cn("text-lg sm:text-xl lg:text-2xl font-medium leading-relaxed", activeTheme.text)}>
-                        <MathRenderer text={currentSlide.content} />
-                      </div>
+                  <div className="flex-1 flex flex-col justify-start items-start max-w-4xl py-1 sm:py-2 overflow-y-auto pr-1">
+                    <div className={cn("text-sm sm:text-base lg:text-lg font-normal leading-relaxed", activeTheme.text)}>
+                      <MathRenderer text={currentSlide.content} />
                     </div>
                   </div>
                 ) : (
-                  <div className={cn("text-sm sm:text-base lg:text-lg font-normal leading-relaxed max-w-4xl flex-1 overflow-y-auto pr-2", activeTheme.subtext)}>
+                  <div
+                    className={cn(
+                      "font-normal leading-relaxed max-w-4xl flex-1 overflow-y-auto pr-2",
+                      (currentSlide.content?.length || 0) > 280
+                        ? "text-xs sm:text-sm lg:text-base"
+                        : "text-sm sm:text-base lg:text-lg",
+                      activeTheme.subtext
+                    )}
+                  >
                     <MathRenderer text={currentSlide.content} />
                   </div>
                 )}
