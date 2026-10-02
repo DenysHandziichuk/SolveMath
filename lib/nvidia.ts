@@ -3,12 +3,12 @@ import OpenAI from "openai";
 export const NVIDIA_BASE_URL =
   process.env.NVIDIA_BASE_URL || "https://integrate.api.nvidia.com/v1";
 
-// NVIDIA NIM default model: Llama 3.2 11B (reliable 4-5s presentation generation)
+// NVIDIA NIM default model: Nemotron 3 Ultra 550B (high-accuracy reasoning)
 export const NVIDIA_DEFAULT_MODEL =
-  process.env.NVIDIA_MODEL || "meta/llama-3.2-11b-vision-instruct";
+  process.env.NVIDIA_MODEL || "nvidia/nemotron-3-ultra-550b-a55b";
 
 export const NVIDIA_FALLBACK_MODEL =
-  "z-ai/glm-5.3-flash";
+  "moonshotai/kimi-k3";
 
 // NVIDIA NIM vision model for document/exam OCR extraction
 export const NVIDIA_VISION_MODEL =
