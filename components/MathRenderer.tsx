@@ -64,6 +64,49 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
       return !hasMathSymbols && hasWordSpaces;
     };
 
+    // Helper to render markdown bold/italic in prose without raw asterisks
+    const renderProseWithMarkdown = (proseText: string, keyPrefix: string | number) => {
+      if (!proseText) return null;
+
+      // 1. Convert leading bullet asterisks or dashes (* or -) into clean bullet points •
+      const cleaned = proseText.replace(/^([ \t]*)[*\-][ \t]+/gm, "$1• ");
+
+      // 2. Tokenize bold (*** or **) and italic (*)
+      const tokens = cleaned.split(/(\*\*\*[^\*\n]+?\*\*\*|\*\*[^\*\n]+?\*\*|\*(?!\s)[^\*\n]+?(?<!\s)\*)/g);
+
+      return tokens.map((tok, i) => {
+        if (!tok) return null;
+
+        if (tok.startsWith("***") && tok.endsWith("***") && tok.length >= 6) {
+          return (
+            <strong key={`${keyPrefix}-bi-${i}`} className="font-bold italic text-slate-100 dark:text-white">
+              {tok.slice(3, -3)}
+            </strong>
+          );
+        }
+
+        if (tok.startsWith("**") && tok.endsWith("**") && tok.length >= 4) {
+          return (
+            <strong key={`${keyPrefix}-b-${i}`} className="font-bold text-slate-100 dark:text-white">
+              {tok.slice(2, -2)}
+            </strong>
+          );
+        }
+
+        if (tok.startsWith("*") && tok.endsWith("*") && tok.length >= 2) {
+          return (
+            <em key={`${keyPrefix}-i-${i}`} className="italic text-slate-200 dark:text-slate-300">
+              {tok.slice(1, -1)}
+            </em>
+          );
+        }
+
+        // Clean out any dangling or unclosed ** asterisks so raw stars never leak to UI
+        const stripped = tok.replace(/\*\*/g, "");
+        return <span key={`${keyPrefix}-t-${i}`}>{stripped}</span>;
+      });
+    };
+
     return lines.map((line, lineIdx) => {
       const trimmed = line.trim();
 
@@ -75,8 +118,8 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
         const formula = trimmed.slice(2, -2).trim();
         if (isProseSegment(formula)) {
           return (
-            <p key={lineIdx} className="my-2 leading-relaxed font-normal">
-              {formula}
+            <p key={lineIdx} className="my-1.5 leading-relaxed font-normal">
+              {renderProseWithMarkdown(formula, `disp-prose-${lineIdx}`)}
             </p>
           );
         }
@@ -84,7 +127,7 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
         return (
           <div
             key={lineIdx}
-            className="my-2 overflow-x-auto text-center font-normal tracking-normal py-1"
+            className="my-1.5 overflow-x-auto text-center font-normal tracking-normal py-0.5"
             dangerouslySetInnerHTML={{ __html: renderTex(formula, true) }}
           />
         );
@@ -103,7 +146,7 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
         if (part.startsWith("$$") && part.endsWith("$$") && part.length >= 4) {
           const inner = part.slice(2, -2).trim();
           if (isProseSegment(inner)) {
-            return <span key={partIdx}>{inner}</span>;
+            return <span key={partIdx}>{renderProseWithMarkdown(inner, `disp-in-${partIdx}`)}</span>;
           }
           return (
             <span
@@ -118,7 +161,7 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
         if (part.startsWith("\\[") && part.endsWith("\\]") && part.length >= 4) {
           const inner = part.slice(2, -2).trim();
           if (isProseSegment(inner)) {
-            return <span key={partIdx}>{inner}</span>;
+            return <span key={partIdx}>{renderProseWithMarkdown(inner, `bra-in-${partIdx}`)}</span>;
           }
           return (
             <span
@@ -133,7 +176,7 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
         if (part.startsWith("$") && part.endsWith("$") && part.length >= 2) {
           const inner = part.slice(1, -1).trim();
           if (isProseSegment(inner)) {
-            return <span key={partIdx}>{inner}</span>;
+            return <span key={partIdx}>{renderProseWithMarkdown(inner, `inline-in-${partIdx}`)}</span>;
           }
           return (
             <span
@@ -181,7 +224,7 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
                       />
                     );
                   }
-                  return <span key={subIdx}>{sub}</span>;
+                  return <span key={subIdx}>{renderProseWithMarkdown(sub, `sub-${subIdx}`)}</span>;
                 })}
               </span>
             );
@@ -196,8 +239,8 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
           );
         }
 
-        // 6. Regular prose text
-        return <span key={partIdx}>{part}</span>;
+        // 6. Regular prose text with markdown bold/italic support
+        return <span key={partIdx}>{renderProseWithMarkdown(part, `prose-${partIdx}`)}</span>;
       });
 
       if (inline) {
@@ -223,7 +266,7 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
   }
 
   return (
-    <div className={cn("flex flex-col gap-2 sm:gap-2.5", className)}>
+    <div className={cn("flex flex-col gap-1.5 sm:gap-2", className)}>
       {renderedElements}
     </div>
   );
