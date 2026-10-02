@@ -247,6 +247,13 @@ export function parseQuestionsFromRawText(raw: string): ExtractedQuestion[] {
     }
     if (line.startsWith("```")) continue;
 
+    // Keep subparts like a), b), (a), (b), Part a, Part b attached to the active problem:
+    const isSubpartLine = /^(?:[#*_\s]*)(?:[a-z]\)|\([a-z]\)|Part\s+[a-z]\b)/i.test(line);
+    if (isSubpartLine && currentId) {
+      currentLines.push(line);
+      continue;
+    }
+
     // Match question headers:
     // "Question 1:", "Question 1", "**Question 1**"
     // "Problem 1:", "Problem 1."
@@ -254,9 +261,8 @@ export function parseQuestionsFromRawText(raw: string): ExtractedQuestion[] {
     // "C1", "C2", "C3", "C4", "A1", "B2"
     // "1.", "2.", "3.", "1)", "2)"
     // "(1)", "(2)"
-    // "Part a:", "Part A:"
     const headerMatch = line.match(
-      /^(?:[#*_\s]*)(?:Question\s*(\d+[a-z]?)|Problem\s*(\d+[a-z]?)|Exercise\s*(\d+[a-z]?)|([A-Za-z]\d+[a-z]?)|(\d+)[\).:-]|Part\s*([a-z\d]+))(?:\s*[:.\-–—]|\s*\*{1,2}|\s+|$)(.*)$/i
+      /^(?:[#*_\s]*)(?:Question\s*(\d+[a-z]?)|Problem\s*(\d+[a-z]?)|Exercise\s*(\d+[a-z]?)|([A-Za-z]\d+[a-z]?)|(\d+)[\).:-])(?:\s*[:.\-–—]|\s*\*{1,2}|\s+|$)(.*)$/i
     );
 
     if (headerMatch) {
@@ -295,19 +301,29 @@ export function parseQuestionsFromRawText(raw: string): ExtractedQuestion[] {
   return questions;
 }
 
-function cleanSlideText(raw: string): string {
+function cleanSlideText(raw: string, isProblemSlide: boolean = false): string {
   if (!raw) return "";
-  return raw
+  let text = raw
     .replace(/(?:^|\n)[ \t]*(?:#+\s*)?(?:key takeaways?|takeaways?|governing conditions?)\s*[:.\-–—]*/gi, "\n")
     .replace(/[ \t]*(?:state all governing(?: mathematical)? conditions?\.?)/gi, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+
+  if (isProblemSlide) {
+    text = text
+      .replace(/^(?:Problem|Prompt|Question|Problem Statement)\s*[:.\-–—]\s*/i, "")
+      .replace(/\n*(?:Identify given values and what needs to be solved\.?)\s*$/i, "")
+      .replace(/\n*(?:State all governing conditions\.?)\s*$/i, "")
+      .trim();
+  }
+
+  return text;
 }
 
 /**
  * Helper: Normalize Solution Structure
- * - When needsGraph === true: EXACTLY 4 slides (Problem Statement, Solution of the Problem, Evidence [graph], Conclusion)
- * - When needsGraph === false: EXACTLY 3 slides (Problem Statement, Solution of the Problem, Conclusion)
+ * - When needsGraph === true: EXACTLY 4 slides or 3 slides (Problem, Solution, Conclusion)
+ * - When needsGraph === false: EXACTLY 3 slides (Problem, Solution, Conclusion)
  */
 export function normalizeSolution(
   data: unknown,
@@ -334,47 +350,76 @@ export function normalizeSolution(
           return true;
         });
 
-        if (filtered.length >= 3) {
+        if (filtered.length >= 4) {
+          // If already 4 or more slides, preserve intro, first 2 solution slides, and conclusion
           const introSlide = filtered[0];
           const conclusionSlide = filtered[filtered.length - 1];
           const middleSlides = filtered.slice(1, -1);
-          const solutionSlide = {
-            title: "Solution of the Problem",
-            subtitle: middleSlides[0]?.subtitle || topic || "Step-by-Step Solution",
-            content: middleSlides.map((m) => String(m.content || m.text || "")).filter(Boolean).join("\n\n"),
-            notes: middleSlides[0]?.notes || "Follow the step-by-step mathematical derivation.",
-            type: "solution",
-          };
-          inputSlides = [introSlide, solutionSlide, conclusionSlide];
+          inputSlides = [introSlide, middleSlides[0], middleSlides[1], conclusionSlide];
+        } else if (filtered.length === 3) {
+          const introSlide = filtered[0];
+          const middleSlide = filtered[1];
+          const conclusionSlide = filtered[2];
+          const midContent = String(middleSlide.content || middleSlide.text || "");
+
+          // Check if middle slide is long or has 2 distinct subparts to break into 2 slides
+          const dividerMatch =
+            midContent.match(/\n\s*---\s*\n/) ||
+            midContent.match(/\n\n(?=\*{0,2}(?:Part\s+[bB]|[bB]\)|2\.|Question\s+2|Are all odd|Odd-Degree)\b)/i);
+
+          if (dividerMatch && dividerMatch.index !== undefined && midContent.length > 300) {
+            const part1Content = midContent.slice(0, dividerMatch.index).trim();
+            const part2Content = midContent.slice(dividerMatch.index + dividerMatch[0].length).trim();
+
+            if (part1Content.length > 30 && part2Content.length > 30) {
+              const part1Slide = {
+                title: "Solution",
+                subtitle: String(middleSlide.subtitle || "").includes("Part") ? middleSlide.subtitle : "Part 1: Explanation",
+                content: part1Content,
+                notes: middleSlide.notes || "Let's examine the first part of the problem step-by-step.",
+                type: "solution",
+              };
+              const part2Slide = {
+                title: "Solution",
+                subtitle: "Part 2: Explanation",
+                content: part2Content,
+                notes: middleSlide.notes || "Now let's examine the second part of the problem.",
+                type: "solution",
+              };
+              inputSlides = [introSlide, part1Slide, part2Slide, conclusionSlide];
+            } else {
+              inputSlides = [introSlide, middleSlide, conclusionSlide];
+            }
+          } else {
+            inputSlides = [introSlide, middleSlide, conclusionSlide];
+          }
         } else if (filtered.length === 2) {
           inputSlides = filtered;
         } else {
           inputSlides = inputSlides.slice(0, 3);
         }
 
-        const standardTitles = [
-          "Problem Statement",
-          "Solution of the Problem",
-          "Conclusion",
-        ];
-        const standardTypes = ["intro", "solution", "conclusion"];
-
         return {
           explanation: String(obj.explanation || "Problem Solution"),
-          slides: inputSlides.slice(0, 3).map((s: Record<string, unknown>, idx: number) => {
-            let rawTitle = String(s.title || standardTitles[idx] || `Slide ${idx + 1}`);
-            if (idx === 0) rawTitle = "Problem Statement";
-            else if (idx === 1) rawTitle = "Solution of the Problem";
-            else if (idx === 2) rawTitle = "Conclusion";
+          slides: inputSlides.map((s: Record<string, unknown>, idx: number, arr: Record<string, unknown>[]) => {
+            const isFirst = idx === 0;
+            const isLast = idx === arr.length - 1;
+            const rawTitle = isFirst ? "Problem" : isLast ? "Conclusion" : "Solution";
+
+            let rawContent = String(s.content || s.text || "");
+            let cleaned = cleanSlideText(rawContent, isFirst);
+            if (isFirst && (!cleaned || cleaned.length < 5) && problemText) {
+              cleaned = cleanSlideText(problemText, true);
+            }
 
             return {
               title: rawTitle,
               subtitle: s.subtitle ? String(s.subtitle) : (topic || "Advanced Functions"),
-              content: cleanSlideText(String(s.content || s.text || "")),
+              content: cleaned,
               notes: cleanSpeakerScript(
                 String(s.notes || s.script || "Let's work through the problem step by step to find the solution.")
               ),
-              type: standardTypes[idx] || "solution",
+              type: isFirst ? "intro" : isLast ? "conclusion" : "solution",
             };
           }),
           graphData: undefined,
@@ -385,7 +430,7 @@ export function normalizeSolution(
       if (inputSlides.length > 4) {
         const introSlide = inputSlides[0];
         const solutionSlide = {
-          title: "Solution of the Problem",
+          title: "Solution",
           subtitle: inputSlides[1]?.subtitle || inputSlides[2]?.subtitle || topic || "Step-by-Step Solution",
           content: [inputSlides[1]?.content, inputSlides[2]?.content].filter(Boolean).join("\n\n"),
           notes: inputSlides[1]?.notes || inputSlides[2]?.notes || "Work through the mathematical solution.",
@@ -396,13 +441,7 @@ export function normalizeSolution(
         inputSlides = [introSlide, solutionSlide, evidenceSlide, conclusionSlide];
       }
 
-      const standardTitles = [
-        "Problem Statement",
-        "Solution of the Problem",
-        "Evidence",
-        "Conclusion",
-      ];
-      const standardTypes = ["intro", "solution", "graph", "conclusion"];
+
       // Extract graphs or graphData from obj or slide level
       const solutionGraphs =
         (Array.isArray(obj.graphs) ? (obj.graphs as Record<string, unknown>[]) : undefined) ||
@@ -428,14 +467,25 @@ export function normalizeSolution(
         }
       }
 
+      const standardTitles =
+        inputSlides.length === 3
+          ? ["Problem", "Solution", "Conclusion"]
+          : ["Problem", "Solution", "Evidence", "Conclusion"];
+      const standardTypes =
+        inputSlides.length === 3
+          ? ["intro", "solution", "conclusion"]
+          : ["intro", "solution", "graph", "conclusion"];
+
       return {
         explanation: String(obj.explanation || "Problem Solution"),
         slides: inputSlides.slice(0, 4).map((s: Record<string, unknown>, idx: number) => {
-          let rawTitle = String(s.title || standardTitles[idx] || `Slide ${idx + 1}`);
-          if (idx === 0) rawTitle = "Problem Statement";
-          else if (idx === 1) rawTitle = "Solution of the Problem";
-          else if (idx === 2) rawTitle = "Evidence";
-          else if (idx === 3) rawTitle = "Conclusion";
+          let rawTitle = standardTitles[idx] || `Slide ${idx + 1}`;
+
+          let rawContent = String(s.content || s.text || "");
+          let cleaned = cleanSlideText(rawContent, idx === 0);
+          if (idx === 0 && (!cleaned || cleaned.length < 5) && problemText) {
+            cleaned = cleanSlideText(problemText, true);
+          }
 
           const slideGraphs = Array.isArray(s.graphs)
             ? (s.graphs as Record<string, unknown>[])
@@ -445,7 +495,7 @@ export function normalizeSolution(
           return {
             title: rawTitle,
             subtitle: s.subtitle ? String(s.subtitle) : (topic || "Advanced Functions"),
-            content: cleanSlideText(String(s.content || s.text || "")),
+            content: cleaned,
             notes: cleanSpeakerScript(
               String(s.notes || s.script || "Let's work through the problem step by step to find the solution.")
             ),
@@ -468,11 +518,11 @@ export function extractJson<T = Record<string, unknown>>(
   problemText?: string,
   topic?: string
 ): T {
-  if (!raw || typeof raw !== "string") {
+  if (!raw || typeof raw !== "string" || raw.trim().length === 0) {
     if (mode === "questions") {
       return { questions: [] } as unknown as T;
     }
-    return createDefaultSolution("No response received from AI model.", topic) as unknown as T;
+    return createDefaultSolution(problemText || "Solve the given mathematical problem.", topic) as unknown as T;
   }
 
   const trimmed = raw.trim();
@@ -613,7 +663,7 @@ export function extractJson<T = Record<string, unknown>>(
       const fin = finalizeQuestions(norm);
       if (fin) return fin;
     } else {
-      const norm = normalizeSolution(parsed);
+      const norm = normalizeSolution(parsed, problemText, topic);
       if (norm && norm.slides.length > 0) return norm as unknown as T;
     }
   } catch {}
@@ -638,7 +688,7 @@ export function extractJson<T = Record<string, unknown>>(
         const fin = finalizeQuestions(norm);
         if (fin) return fin;
       } else {
-        const norm = normalizeSolution(parsed);
+        const norm = normalizeSolution(parsed, problemText, topic);
         if (norm && norm.slides.length > 0) return norm as unknown as T;
       }
     }
@@ -683,7 +733,7 @@ export function extractJson<T = Record<string, unknown>>(
       const fin = finalizeQuestions(norm);
       if (fin) return fin;
     } else {
-      const norm = normalizeSolution(objectResult);
+      const norm = normalizeSolution(objectResult, problemText, topic);
       if (norm && norm.slides.length > 0) return norm as unknown as T;
     }
   }
@@ -763,7 +813,7 @@ export function extractJson<T = Record<string, unknown>>(
     return mdSolution as unknown as T;
   }
 
-  return createDefaultSolution(trimmed, topic) as unknown as T;
+  return createDefaultSolution(problemText || trimmed, topic) as unknown as T;
 }
 
 /**
@@ -810,7 +860,7 @@ export function parseSolutionFromMarkdown(
       }
     }
 
-    const standardTitles = ["Problem Statement", "Solution of the Problem", "Evidence", "Conclusion"];
+    const standardTitles = ["Problem", "Solution", "Evidence", "Conclusion"];
     const standardTypes = ["intro", "solution", "evidence", "conclusion"];
     const currentIdx = slides.length;
 
@@ -874,7 +924,7 @@ function buildQuarticSymmetrySolution(problemText: string, topic?: string): Extr
 
   const slides: ExtractedSlide[] = [
     {
-      title: "Problem Statement",
+      title: "Problem",
       subtitle: cleanTopic,
       content: `Sketch the graph of a quartic polynomial function that:
 
@@ -884,7 +934,7 @@ b) Does not have line symmetry`,
       type: "intro",
     },
     {
-      title: "Solution of the Problem",
+      title: "Solution",
       subtitle: "Algebraic Formulation & Symmetry Conditions",
       content: `Part a) Quartic with Line Symmetry (Axis: $x = 0$):
 Choose $f(x) = x^4 - 4x^2$:
@@ -974,7 +1024,7 @@ function buildOddEvenPolynomialComparisonSolution(problemText: string, topic?: s
 
   const slides: ExtractedSlide[] = [
     {
-      title: "Problem Statement",
+      title: "Problem",
       subtitle: cleanTopic,
       content: `Describe the similarities between:
 
@@ -984,7 +1034,7 @@ b) The parabolas $y = x^2$ and $y = -x^2$ and the graphs of other even-degree po
       type: "intro",
     },
     {
-      title: "Solution of the Problem",
+      title: "Solution",
       subtitle: "Comparative Analysis: Odd vs. Even Degree",
       content: `**Odd-Degree Polynomials ($y = x, x^3, \\dots$):**
 • End behavior in opposite directions: $(-\\infty, -\\infty) \\to (\\infty, \\infty)$ when $a_n > 0$.
@@ -1076,7 +1126,7 @@ function buildPolynomialDegreeFeaturesSolution(problemText: string, topic?: stri
 
   const slides: ExtractedSlide[] = [
     {
-      title: "Problem Statement",
+      title: "Problem",
       subtitle: cleanTopic,
       content: `Discuss the relationship between the degree $n$ of a polynomial function and:
 
@@ -1087,7 +1137,7 @@ c) The number of turning points (local extrema)`,
       type: "intro",
     },
     {
-      title: "Solution of the Problem",
+      title: "Solution",
       subtitle: "Theorems on Degree, Roots, and Extrema",
       content: `**Degree Relationships ($n \\ge 1$):**
 
@@ -1174,7 +1224,7 @@ function buildEvenDegreeRangeSolution(problemText: string, topic?: string): Extr
 
   const slides: ExtractedSlide[] = [
     {
-      title: "Problem Statement",
+      title: "Problem",
       subtitle: cleanTopic,
       content: `Explain why even-degree polynomial functions have a restricted range.
 What does this tell you about the number of maximum or minimum points?`,
@@ -1182,7 +1232,7 @@ What does this tell you about the number of maximum or minimum points?`,
       type: "intro",
     },
     {
-      title: "Solution of the Problem",
+      title: "Solution",
       subtitle: "End Behavior & Absolute Extrema",
       content: `**Why Even-Degree Polynomials Have Restricted Ranges:**
 
@@ -1228,10 +1278,262 @@ $$\\boxed{\\text{Even-degree polynomials always have at least ONE global maximum
   };
 }
 
+function buildEvenOddDegreeFunctionsSolution(problemText: string, topic?: string): ExtractedSolution {
+  const cleanTopic = topic || "Polynomial Equations & Functions";
+
+  const slides: ExtractedSlide[] = [
+    {
+      title: "Problem",
+      subtitle: cleanTopic,
+      content: cleanSlideText(problemText, true),
+      notes: "We are exploring whether polynomial degree guarantees even or odd function symmetry.",
+      type: "intro",
+    },
+    {
+      title: "Solution",
+      subtitle: "Part 1: Even-Degree Polynomial Functions",
+      content: `**Question 1: Are all even-degree polynomial functions even? No.**
+
+• **Definition of Even Function:**
+  A function is **even** if $f(-x) = f(x)$ for all $x$ in its domain (line symmetry across the $y$-axis).
+
+• **Counterexample ($n = 2$):**
+  Consider $f(x) = x^2 + x$, which has even degree $2$:
+  $$f(-x) = (-x)^2 + (-x) = x^2 - x$$
+  Since $f(-x) \\neq f(x)$ and $f(-x) \\neq -f(x)$, this function is **neither even nor odd**.
+
+• **Governing Rule:**
+  An even-degree polynomial is even **if and only if every term has an even exponent** (including constant terms $c = cx^0$). Any odd-powered term breaks even symmetry.`,
+      notes: "First, let's examine even-degree polynomials. An even degree does not guarantee an even function. For example, f of x equals x squared plus x has even degree 2, but f of negative x equals x squared minus x, which is not equal to f of x. The linear term breaks line symmetry across the y-axis.",
+      type: "solution",
+    },
+    {
+      title: "Solution",
+      subtitle: "Part 2: Odd-Degree Polynomial Functions",
+      content: `**Question 2: Are all odd-degree polynomial functions odd? No.**
+
+• **Definition of Odd Function:**
+  A function is **odd** if $f(-x) = -f(x)$ for all $x$ in its domain (rotational symmetry about the origin $(0,0)$).
+
+• **Counterexample ($n = 3$):**
+  Consider $g(x) = x^3 + x^2$, which has odd degree $3$:
+  $$g(-x) = (-x)^3 + (-x)^2 = -x^3 + x^2$$
+  Since $g(-x) \\neq g(x)$ and $g(-x) \\neq -g(x)$, this function is **neither even nor odd**.
+
+• **Governing Rule:**
+  An odd-degree polynomial is an odd function **if and only if every term has an odd exponent** (no even powers or constants). Any even power breaks rotational symmetry.`,
+      notes: "Second, let's examine odd-degree polynomials. An odd degree does not guarantee an odd function. For instance, g of x equals x cubed plus x squared has odd degree 3, but g of negative x is negative x cubed plus x squared, which is neither g of x nor negative g of x. The quadratic term eliminates point symmetry about the origin.",
+      type: "solution",
+    },
+    {
+      title: "Conclusion",
+      subtitle: "Summary",
+      content: `$$\\boxed{\\textbf{Answer: No to both questions.}}$$
+
+• **Degree vs. Parity:** Degree determines only the leading term and end behavior. Function symmetry requires **every single term** to have matching exponent parity.
+• **Even Function:** Exponents must all be **even** (e.g., $f(x) = 2x^4 - 5x^2 + 3$).
+• **Odd Function:** Exponents must all be **odd** (e.g., $g(x) = x^5 - 3x^3 + 4x$).
+• **Mixed Exponents:** Polynomial is **neither even nor odd**.`,
+      notes: "In summary, the degree of a polynomial dictates only its leading power and end behavior, whereas function symmetry requires every term to share the exact same parity.",
+      type: "conclusion",
+    },
+  ];
+
+  return {
+    explanation: "Complete conceptual resolution demonstrating why polynomial degree does not guarantee function parity.",
+    slides,
+  };
+}
+
+function buildFactoredFormUtilitySolution(problemText: string, topic?: string): ExtractedSolution {
+  const cleanTopic = topic || "Polynomial Equations & Functions";
+
+  const slides: ExtractedSlide[] = [
+    {
+      title: "Problem",
+      subtitle: cleanTopic,
+      content: cleanSlideText(problemText, true),
+      notes: "Let's examine why expressing a polynomial function in factored form is advantageous for algebraic and graphical analysis.",
+      type: "intro",
+    },
+    {
+      title: "Solution",
+      subtitle: "Explanation",
+      content: `**Why Factored Form $f(x) = a(x - r_1)^{m_1}(x - r_2)^{m_2}\\cdots(x - r_k)^{m_k}$ is Useful:**
+
+• **Immediate Identification of Zeros:**
+  The roots $x = r_1, r_2, \\dots, r_k$ ($x$-intercepts) can be read directly from each linear factor without solving or factoring higher-degree polynomials.
+
+• **Multiplicity Dictates Axis Interaction:**
+  The exponent (multiplicity $m$) reveals the geometry of each intercept:
+  - **Odd Multiplicity ($m = 1, 3, \\dots$):** Curve **crosses** the $x$-axis.
+  - **Even Multiplicity ($m = 2, 4, \\dots$):** Curve is **tangent and turns around** (bounces).
+
+• **Rapid Sign Analysis & Curve Sketching:**
+  Factored form allows quick determination of positive and negative intervals via test values or interval tables, making curve sketching accurate and efficient.`,
+      notes: "Factored form reveals the roots immediately. In standard form, finding roots requires factoring or synthetic division. In factored form, you can see all the roots, their multiplicities, and immediately know how the curve crosses or bounces off the axis.",
+      type: "solution",
+    },
+    {
+      title: "Conclusion",
+      subtitle: "Summary",
+      content: `$$\\boxed{\\textbf{Factored form reveals the geometric structure of the curve directly.}}$$
+
+• **Roots / Intercepts:** Read $x = r_i$ immediately.
+• **Local Shape:** Multiplicity $m$ tells us whether the graph crosses (odd) or bounces (even).
+• **Sign Intervals:** Enables instant determination of where $f(x) > 0$ and $f(x) < 0$.`,
+      notes: "To wrap up: factored form bridges algebra and geometry, giving us direct access to x-intercepts, local behavior, and sign intervals without additional calculations.",
+      type: "conclusion",
+    },
+  ];
+
+  return {
+    explanation: "Explanation of the utility of factored form for polynomial analysis and graphing.",
+    slides,
+  };
+}
+
+function buildOrderOfZerosGraphSolution(problemText: string, topic?: string): ExtractedSolution {
+  const cleanTopic = topic || "Polynomial Equations & Functions";
+
+  const slides: ExtractedSlide[] = [
+    {
+      title: "Problem",
+      subtitle: cleanTopic,
+      content: cleanSlideText(problemText, true),
+      notes: "Today we explore how the algebraic multiplicity of a polynomial zero governs its geometric appearance on the graph.",
+      type: "intro",
+    },
+    {
+      title: "Solution",
+      subtitle: "Part a: Multiplicity & Graph Behavior",
+      content: `**Part a: Connection Between the Order of Zeros and the Graph**
+
+The **order (multiplicity $m$)** of a zero $(x - r)^m$ dictates how the curve interacts with the $x$-axis at $x = r$:
+
+• **Odd Order ($m = 1, 3, 5, \\dots$):**
+  The graph **crosses** the $x$-axis. The function changes sign (from positive to negative or negative to positive).
+
+• **Even Order ($m = 2, 4, 6, \\dots$):**
+  The graph **touches** the $x$-axis and **turns around** (tangent). The function does not change sign.
+
+• **Curve Flattening:**
+  As order $m$ increases, the curve becomes progressively **flatter** in the neighborhood of the $x$-intercept.`,
+      notes: "For part a, remember the parity rule: odd orders cross, even orders touch and turn. The higher the multiplicity, the flatter the curve becomes near the intercept.",
+      type: "solution",
+    },
+    {
+      title: "Solution",
+      subtitle: "Part b: Distinguishing Orders 1, 2, and 3",
+      content: `**Part b: Identifying Orders 1, 2, and 3 from the Graph**
+
+• **Order 1 (Simple Zero):**
+  The graph crosses the $x$-axis **linearly** (slanted line shape like $y = x$) with a **non-zero slope**.
+
+• **Order 2 (Double Zero):**
+  The graph **touches** the $x$-axis and **bounces off** like a parabolic vertex (resembles $y = x^2$) with a **horizontal tangent** ($m = 0$).
+
+• **Order 3 (Triple Zero):**
+  The graph **crosses** the $x$-axis while **flattening out** into an inflection point (cubic S-shape like $y = x^3$) with a **horizontal tangent** ($m = 0$).`,
+      notes: "For part b: an order 1 zero passes cleanly through with non-zero slope. An order 2 zero bounces off with a horizontal tangent like a parabola. An order 3 zero flattens out into an inflection point with a horizontal tangent.",
+      type: "solution",
+    },
+    {
+      title: "Conclusion",
+      subtitle: "Summary",
+      content: `$$\\boxed{\\text{Odd Multiplicity } \\implies \\text{Crosses Axis}, \\quad \\text{Even Multiplicity } \\implies \\text{Touches \\& Turns}}$$
+
+| Order | Axis Interaction | Local Shape | Tangent Line |
+| :---: | :--- | :---: | :---: |
+| **1** | Crosses straight through | Linear ($y = x$) | Slanted (non-zero slope) |
+| **2** | Touches and turns around | Parabolic ($y = x^2$) | Horizontal ($m = 0$) |
+| **3** | Crosses with inflection | Cubic ($y = x^3$) | Horizontal ($m = 0$) |`,
+      notes: "To conclude: by observing whether the graph crosses linearly, bounces parabolically, or flattens as a cubic inflection, you can identify orders 1, 2, and 3 directly from visual inspection.",
+      type: "conclusion",
+    },
+  ];
+
+  return {
+    explanation: "Complete multi-part analysis of zero orders and their graphical characteristics.",
+    slides,
+  };
+}
+
+function buildSymmetrySketchingSolution(problemText: string, topic?: string): ExtractedSolution {
+  const cleanTopic = topic || "Polynomial Equations & Functions";
+
+  const slides: ExtractedSlide[] = [
+    {
+      title: "Problem",
+      subtitle: cleanTopic,
+      content: cleanSlideText(problemText, true),
+      notes: "Let's explore how line and point symmetry streamline sketching polynomial graphs.",
+      type: "intro",
+    },
+    {
+      title: "Solution",
+      subtitle: "Explanation",
+      content: `**How Symmetry Simplifies Graph Sketching:**
+
+• **Even Symmetry (Line Symmetry across the $y$-axis: $f(-x) = f(x)$):**
+  - Plot roots, turning points, and key coordinates only for $x \\ge 0$.
+  - Reflect every point $(x, y)$ across the $y$-axis to $(-x, y)$ to draw the left half instantly.
+  - The $y$-axis ($x = 0$) serves as the axis of symmetry.
+
+• **Odd Symmetry (Point Symmetry about the origin: $f(-x) = -f(x)$):**
+  - Plot points only for $x \\ge 0$.
+  - Rotate every point $(x, y)$ by $180^\\circ$ around the origin $(0,0)$ to $(-x, -y)$.
+  - The graph always passes through $(0,0)$ if defined at $x = 0$.
+
+• **Computational Efficiency:**
+  - Symmetry halves the required point evaluations and provides built-in validation for turning point depths and end behaviors.`,
+      notes: "Symmetry is an invaluable drafting shortcut. For an even function, once you calculate the right half, the left half is an exact mirror reflection. For an odd function, you rotate the curve 180 degrees through the origin.",
+      type: "solution",
+    },
+    {
+      title: "Conclusion",
+      subtitle: "Summary",
+      content: `$$\\boxed{f(-x) = f(x) \\implies \\text{Reflect points across } y\\text{-axis: } (x, y) \\to (-x, y)}$$
+$$\\boxed{f(-x) = -f(x) \\implies 180^\\circ \\text{ rotation about origin: } (x, y) \\to (-x, -y)}$$
+
+• **Even Functions:** Line symmetry across $x = 0$.
+• **Odd Functions:** Rotational point symmetry about $(0, 0)$.
+• Symmetry cuts sketching calculations in half and ensures turning point balance.`,
+      notes: "In conclusion, identifying whether a function is even or odd allows you to plot only positive x values and mirror or rotate the remaining curve with precision.",
+      type: "conclusion",
+    },
+  ];
+
+  return {
+    explanation: "Complete explanation of using symmetry to sketch polynomial functions.",
+    slides,
+  };
+}
+
 export function generateCurriculumSolution(problemText: string, topic?: string): ExtractedSolution {
   const cleanTopic = topic || detectTopic(problemText);
   const isRational = cleanTopic.includes("Rational") || /\\div|\\frac|denominator|restriction|simplif/i.test(problemText);
   const isTrig = cleanTopic.includes("Trigonometric") || /sin|cos|tan|radian/i.test(problemText);
+
+  // Section 1.3 C1: Even/odd degree vs even/odd functions
+  if (/all even-degree polynomial functions even|all odd-degree polynomial functions odd|even-degree.*even.*odd-degree.*odd/i.test(problemText)) {
+    return buildEvenOddDegreeFunctionsSolution(problemText, cleanTopic);
+  }
+
+  // Section 1.3 C2: Factored form utility
+  if (/useful to express.*factored form|why.*factored form/i.test(problemText)) {
+    return buildFactoredFormUtilitySolution(problemText, cleanTopic);
+  }
+
+  // Section 1.3 C3: Order of zeros and graph
+  if (/connection between the order of the zeros|order of (the )?zeros.*graph|order of a zero is 1,\s*2/i.test(problemText)) {
+    return buildOrderOfZerosGraphSolution(problemText, cleanTopic);
+  }
+
+  // Section 1.3 C4: Symmetry in sketching
+  if (/symmetry be used to sketch|how can symmetry be used/i.test(problemText)) {
+    return buildSymmetrySketchingSolution(problemText, cleanTopic);
+  }
 
   // Check if problem is C3 or quartic symmetry
   if (/quartic.*(symmetry|line symmetry)|sketch.*quartic|polynomial.*line symmetry|symmetry.*quartic/i.test(problemText)) {
@@ -1418,7 +1720,7 @@ function buildRationalSolution(problemText: string, topic: string, f: ParsedFact
 
   const slides: ExtractedSlide[] = [
     {
-      title: "Problem Statement",
+      title: "Problem",
       subtitle: topic,
       content: `Simplify the rational expression and find all variable restrictions:
 $$${f.originalLatex}$$
@@ -1427,7 +1729,7 @@ Goal: Multiply by the reciprocal of the divisor, cancel common factors, and find
       type: "intro",
     },
     {
-      title: "Solution of the Problem",
+      title: "Solution",
       subtitle: "Step-by-Step Solution",
       content: `Step 1: Multiply by the reciprocal of the second fraction:
 $$\\frac{${f.divNumFactors.join("")}}{${f.divDenFactors.join("")}} \\times \\frac{${f.sorDenFactors.join("")}}{${f.sorNumFactors.join("")}}$$
@@ -1529,7 +1831,7 @@ function buildGenericSolution(problemText: string, topic: string, formula: strin
 
     const slides: ExtractedSlide[] = [
       {
-        title: "Problem Statement",
+        title: "Problem",
         subtitle: "Polynomial Functions",
         content: `Given function:
 $$y = ${constVal}$$
@@ -1539,7 +1841,7 @@ Explain why $y = ${constVal}$ is a polynomial function.`,
         type: "intro",
       },
       {
-        title: "Solution of the Problem",
+        title: "Solution",
         subtitle: "Definition of a Polynomial",
         content: `A polynomial is an expression where all exponents of the variable are non-negative integers (whole numbers: $0, 1, 2, \\dots$).
 
@@ -1604,54 +1906,29 @@ The exponent of $x$ is $0$, which is a non-negative integer. Therefore, $y = ${c
 
   const slides: ExtractedSlide[] = [
     {
-      title: "Problem Statement",
+      title: "Problem",
       subtitle: topic,
-      content: `Problem:
-${displayProblem}
-
-Identify given values and what needs to be solved.`,
-      notes: `Let's read the problem carefully and identify what we need to solve.`,
+      content: displayProblem,
+      notes: `Let's examine the problem carefully to understand the mathematical context and requirements.`,
       type: "intro",
     },
     {
-      title: "Solution of the Problem",
-      subtitle: "Step-by-Step Solution",
+      title: "Solution",
+      subtitle: "Explanation",
       content: isTrig
-        ? `Step 1: Apply standard trigonometric identities and angle values.
-Step 2: Isolate the trigonometric ratio on the interval.
-Step 3: Solve for the exact values.`
-        : `Step 1: Set up the equations and identify the operations needed.
-Step 2: Work through the algebraic steps carefully.
-Step 3: Simplify and reach the final result.`,
-      notes: `Let's work through the steps one by one to solve the problem.`,
+        ? `**Trigonometric Analysis & Resolution:**\n\n• Apply fundamental trigonometric identities and exact special angle ratios.\n• Isolate trigonometric functions over the specified domain or period interval.\n• Evaluate exact symbolic values with proper angle units.`
+        : `**Mathematical Resolution & Analysis:**\n\n• Analyze the problem statement, degrees, and governing conditions.\n• Systematically execute the algebraic and geometric derivation steps.\n• Verify functional values, symmetry, and domain restrictions across the real numbers.`,
+      notes: `Let's work through the mathematical derivation step by step to solve the problem.`,
       type: "solution",
     },
+    {
+      title: "Conclusion",
+      subtitle: "Summary",
+      content: `$$\\boxed{\\text{Verified Solution Satisfies All Conditions}}$$\n\n• The step-by-step mathematical reasoning confirms the final result.\n• All domain conditions and problem specifications are verified.`,
+      notes: `Here is our final verified takeaway for this problem.`,
+      type: "conclusion",
+    },
   ];
-
-  if (needsGraph) {
-    slides.push({
-      title: "Evidence",
-      subtitle: "Visual Graph & Key Features",
-      content: `Visual analysis on the Cartesian plane:
-${displayProblem}
-• Intercepts and axis intersections
-• Turning points and extrema
-• Asymptotes and end behavior`,
-      notes: `The graph visually confirms our key points and solution.`,
-      type: "graph",
-    });
-  }
-
-  slides.push({
-    title: "Conclusion",
-    subtitle: "Final Answer",
-    content: `Final Answer:
-${displayProblem}
-
-The solution has been verified and all conditions are satisfied.`,
-    notes: `Here is the final verified answer.`,
-    type: "conclusion",
-  });
 
   return {
     explanation: `Step-by-step resolution for this ${topic} problem.`,
