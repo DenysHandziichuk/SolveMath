@@ -351,8 +351,16 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
         );
       }
 
+      const isBullet = /^[ \t]*[•*\-][ \t]+/.test(line);
+
       return (
-        <p key={lineIdx} className="leading-relaxed tracking-normal">
+        <p
+          key={lineIdx}
+          className={cn(
+            "leading-relaxed tracking-normal",
+            isBullet && "pl-5 sm:pl-6 -indent-5 sm:-indent-6"
+          )}
+        >
           {contentSpans}
         </p>
       );
@@ -366,7 +374,7 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
   }
 
   return (
-    <div className={cn("flex flex-col gap-1.5 sm:gap-2", className)}>
+    <div className={cn("flex flex-col gap-3 sm:gap-4", className)}>
       {renderedElements}
     </div>
   );
