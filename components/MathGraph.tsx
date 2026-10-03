@@ -185,7 +185,7 @@ export function MathGraph({
                   style={{ backgroundColor: fn.color || color }}
                   className="h-2.5 w-2.5 rounded-full ring-2 ring-white/10"
                 />
-                <div className="text-xs font-semibold text-slate-200">
+                <div className="text-xs sm:text-sm font-semibold text-slate-100">
                   <MathRenderer text={fn.equation} inline />
                 </div>
               </div>
@@ -199,14 +199,13 @@ export function MathGraph({
           <div className="grid grid-cols-2 gap-x-4 gap-y-1">
             {properties.map((prop, idx) => (
               <div key={idx} className="flex flex-col">
-                <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">
+                <span className="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider">
                   <MathRenderer text={prop.name} inline />
                 </span>
-                <span className="text-xs font-bold text-slate-100">
+                <span className="text-xs sm:text-sm font-bold text-slate-100">
                   <MathRenderer text={prop.value} inline />
                 </span>
               </div>
-
             ))}
           </div>
         </div>
@@ -267,7 +266,7 @@ export function MathGraph({
             key={`xt-${t.val}`}
             x={scaleX(t.val)}
             y={Math.min(height - 12, Math.max(20, scaleY(0) + 16))}
-            fontSize="10"
+            fontSize={compact ? "11" : "12"}
             fill="#94a3b8"
             textAnchor="middle"
             fontWeight="600"
@@ -281,7 +280,7 @@ export function MathGraph({
             key={`yt-${t.val}`}
             x={Math.max(16, scaleX(0) - 8)}
             y={scaleY(t.val) + 3}
-            fontSize="10"
+            fontSize={compact ? "11" : "12"}
             fill="#94a3b8"
             textAnchor="end"
             fontWeight="600"
