@@ -15,6 +15,7 @@ import {
   Palette,
   Volume2,
   VolumeX,
+  Type,
 } from "lucide-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { MathRenderer } from "./MathRenderer";
@@ -115,15 +116,181 @@ const THEMES = {
 
 type ThemeKey = keyof typeof THEMES;
 
+export type TextScale = "compact" | "standard" | "large" | "xlarge";
+
+export const TEXT_SCALE_OPTIONS: { id: TextScale; label: string; name: string }[] = [
+  { id: "compact", label: "A-", name: "Compact" },
+  { id: "standard", label: "A", name: "Standard" },
+  { id: "large", label: "A+", name: "Large (+25%)" },
+  { id: "xlarge", label: "A++", name: "Extra Large (+50%)" },
+];
+
+function getTitleClass(scale: TextScale) {
+  switch (scale) {
+    case "compact":
+      return "text-2xl sm:text-3xl lg:text-4xl";
+    case "large":
+      return "text-3xl sm:text-4xl lg:text-5xl xl:text-6xl";
+    case "xlarge":
+      return "text-4xl sm:text-5xl lg:text-6xl xl:text-7xl";
+    case "standard":
+    default:
+      return "text-3xl sm:text-4xl lg:text-5xl";
+  }
+}
+
+function getIntroContentClass(scale: TextScale, content?: string) {
+  const len = content?.length || 0;
+  if (len < 140) {
+    switch (scale) {
+      case "compact":
+        return "text-xl sm:text-2xl lg:text-3xl font-medium";
+      case "large":
+        return "text-3xl sm:text-4xl lg:text-5xl xl:text-6xl font-medium";
+      case "xlarge":
+        return "text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-semibold";
+      case "standard":
+      default:
+        return "text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-medium";
+    }
+  }
+  if (len < 320) {
+    switch (scale) {
+      case "compact":
+        return "text-lg sm:text-xl lg:text-2xl font-medium";
+      case "large":
+        return "text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-medium";
+      case "xlarge":
+        return "text-3xl sm:text-4xl lg:text-5xl xl:text-6xl font-semibold";
+      case "standard":
+      default:
+        return "text-xl sm:text-2xl lg:text-3xl xl:text-4xl font-medium";
+    }
+  }
+  switch (scale) {
+    case "compact":
+      return "text-base sm:text-lg lg:text-xl font-normal";
+    case "large":
+      return "text-xl sm:text-2xl lg:text-3xl xl:text-4xl font-normal";
+    case "xlarge":
+      return "text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-normal";
+    case "standard":
+    default:
+      return "text-lg sm:text-xl lg:text-2xl xl:text-3xl font-normal";
+  }
+}
+
+function getSolutionContentClass(scale: TextScale, content?: string) {
+  const len = content?.length || 0;
+  if (len < 250) {
+    switch (scale) {
+      case "compact":
+        return "text-base sm:text-lg lg:text-xl";
+      case "large":
+        return "text-xl sm:text-2xl lg:text-3xl xl:text-4xl";
+      case "xlarge":
+        return "text-2xl sm:text-3xl lg:text-4xl xl:text-5xl";
+      case "standard":
+      default:
+        return "text-lg sm:text-xl lg:text-2xl xl:text-3xl";
+    }
+  }
+  if (len < 650) {
+    switch (scale) {
+      case "compact":
+        return "text-sm sm:text-base lg:text-lg";
+      case "large":
+        return "text-lg sm:text-xl lg:text-2xl xl:text-3xl";
+      case "xlarge":
+        return "text-xl sm:text-2xl lg:text-3xl xl:text-4xl";
+      case "standard":
+      default:
+        return "text-base sm:text-lg lg:text-xl xl:text-2xl";
+    }
+  }
+  switch (scale) {
+    case "compact":
+      return "text-xs sm:text-sm lg:text-base";
+    case "large":
+      return "text-base sm:text-lg lg:text-xl xl:text-2xl";
+    case "xlarge":
+      return "text-lg sm:text-xl lg:text-2xl xl:text-3xl";
+    case "standard":
+    default:
+      return "text-sm sm:text-base lg:text-lg xl:text-xl";
+  }
+}
+
+function getSplitSingleContentClass(scale: TextScale) {
+  switch (scale) {
+    case "compact":
+      return "text-xs sm:text-sm lg:text-base";
+    case "large":
+      return "text-lg sm:text-xl lg:text-2xl";
+    case "xlarge":
+      return "text-xl sm:text-2xl lg:text-3xl";
+    case "standard":
+    default:
+      return "text-base sm:text-lg lg:text-xl";
+  }
+}
+
+function getSplitDualContentClass(scale: TextScale) {
+  switch (scale) {
+    case "compact":
+      return "text-[11px] sm:text-xs lg:text-sm";
+    case "large":
+      return "text-sm sm:text-base lg:text-lg";
+    case "xlarge":
+      return "text-base sm:text-lg lg:text-xl";
+    case "standard":
+    default:
+      return "text-xs sm:text-sm lg:text-base";
+  }
+}
+
 export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [copied, setCopied] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(420);
   const [isResizing, setIsResizing] = useState(false);
   const [theme, setTheme] = useState<ThemeKey>("slate");
+  const [textScale, setTextScale] = useState<TextScale>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("solvemath_text_scale") as TextScale;
+        if (saved && ["compact", "standard", "large", "xlarge"].includes(saved)) {
+          return saved;
+        }
+      } catch {}
+    }
+    return "standard";
+  });
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(true);
+
+  const textScaleIndex = Math.max(0, TEXT_SCALE_OPTIONS.findIndex((opt) => opt.id === textScale));
+
+  const adjustTextScale = useCallback((direction: -1 | 1) => {
+    setTextScale((prev) => {
+      const idx = TEXT_SCALE_OPTIONS.findIndex((opt) => opt.id === prev);
+      const cur = idx === -1 ? 1 : idx;
+      const nextIdx = Math.max(0, Math.min(TEXT_SCALE_OPTIONS.length - 1, cur + direction));
+      const nextScale = TEXT_SCALE_OPTIONS[nextIdx].id;
+      try {
+        localStorage.setItem("solvemath_text_scale", nextScale);
+      } catch {}
+      return nextScale;
+    });
+  }, []);
+
+  const setTextScaleDirectly = useCallback((scale: TextScale) => {
+    setTextScale(scale);
+    try {
+      localStorage.setItem("solvemath_text_scale", scale);
+    } catch {}
+  }, []);
 
   const presentationAreaRef = useRef<HTMLDivElement>(null);
 
@@ -228,12 +395,21 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
         toggleFullscreen();
       } else if (e.key === "Escape" && isFullscreen) {
         setIsFullscreen(false);
+      } else if (e.key === "+" || e.key === "=") {
+        e.preventDefault();
+        adjustTextScale(1);
+      } else if (e.key === "-" || e.key === "_") {
+        e.preventDefault();
+        adjustTextScale(-1);
+      } else if (e.key === "0") {
+        e.preventDefault();
+        setTextScaleDirectly("standard");
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [solution.slides.length, isFullscreen, toggleFullscreen]);
+  }, [solution.slides.length, isFullscreen, toggleFullscreen, adjustTextScale, setTextScaleDirectly]);
 
 
   // Resizable sidebar handlers
@@ -343,8 +519,8 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
           )}
         >
           {/* Slide Header */}
-          <div className="flex items-center justify-between pb-2.5 border-b border-white/5 shrink-0">
-            <div className="text-xs font-medium text-zinc-400 truncate max-w-[70%]">
+          <div className="flex items-center justify-between pb-3 border-b border-white/10 shrink-0">
+            <div className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-zinc-400 truncate max-w-[60%]">
               {currentSlide.subtitle ? (
                 <MathRenderer text={currentSlide.subtitle} inline />
               ) : (
@@ -352,8 +528,31 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
               )}
             </div>
 
-            <div className="flex items-center gap-3">
-              <span className="text-xs font-mono text-zinc-400">
+            <div className="flex items-center gap-2 sm:gap-3">
+              {/* Quick Text Size Adjuster on the slide */}
+              <div className="flex items-center border border-white/10 rounded-lg bg-black/30 backdrop-blur-sm p-0.5 text-xs text-zinc-300">
+                <button
+                  onClick={() => adjustTextScale(-1)}
+                  title="Smaller text (- / _)"
+                  disabled={textScaleIndex === 0}
+                  className="px-2 py-0.5 rounded hover:bg-white/10 hover:text-white disabled:opacity-25 transition-all font-bold"
+                >
+                  A-
+                </button>
+                <span className="px-2 py-0.5 text-[11px] font-mono font-semibold text-zinc-300 border-x border-white/10 min-w-[32px] text-center">
+                  {TEXT_SCALE_OPTIONS[textScaleIndex]?.label}
+                </span>
+                <button
+                  onClick={() => adjustTextScale(1)}
+                  title="Larger text (+ / =)"
+                  disabled={textScaleIndex === TEXT_SCALE_OPTIONS.length - 1}
+                  className="px-2 py-0.5 rounded hover:bg-white/10 hover:text-white disabled:opacity-25 transition-all font-bold"
+                >
+                  A+
+                </button>
+              </div>
+
+              <span className="text-xs sm:text-sm font-mono text-zinc-400 font-medium">
                 {String(currentSlideIndex + 1).padStart(2, "0")} / {String(solution.slides.length).padStart(2, "0")}
               </span>
 
@@ -378,7 +577,7 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
                 transition={{ duration: 0.2 }}
                 className="w-full flex flex-col flex-1 justify-start h-full overflow-hidden min-h-0"
               >
-                <h1 className={cn("text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight mb-3 shrink-0", activeTheme.text)}>
+                <h1 className={cn(getTitleClass(textScale), "font-black tracking-tight mb-4 sm:mb-6 shrink-0", activeTheme.text)}>
                   <MathRenderer text={currentSlide.title} inline />
                 </h1>
 
@@ -387,7 +586,7 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
                   isMultiGraph ? (
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch flex-1 min-h-0 overflow-hidden">
                       {/* Left: Mathematical Explanation */}
-                      <div className={cn("lg:col-span-4 text-xs sm:text-sm lg:text-base font-normal leading-relaxed overflow-y-auto max-h-full pr-2 flex flex-col justify-between", activeTheme.subtext)}>
+                      <div className={cn("lg:col-span-4 font-normal leading-relaxed overflow-y-auto max-h-full pr-2 flex flex-col justify-between", getSplitDualContentClass(textScale), activeTheme.subtext)}>
                         <div className="space-y-3">
                           <MathRenderer text={currentSlide.content} />
                         </div>
@@ -500,7 +699,7 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-center flex-1 min-h-0 overflow-hidden">
-                      <div className={cn("text-sm sm:text-base lg:text-lg font-normal leading-relaxed overflow-y-auto max-h-full pr-2", activeTheme.subtext)}>
+                      <div className={cn("font-normal leading-relaxed overflow-y-auto max-h-full pr-2", getSplitSingleContentClass(textScale), activeTheme.subtext)}>
                         <MathRenderer text={currentSlide.content} />
                       </div>
                       <div className="flex items-center justify-center h-full max-h-full overflow-hidden">
@@ -521,18 +720,16 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
                     </div>
                   )
                 ) : currentSlide.type === "intro" || currentSlideIndex === 0 ? (
-                  <div className="flex-1 flex flex-col justify-start items-start max-w-4xl py-1 sm:py-2 overflow-y-auto pr-1">
-                    <div className={cn("text-sm sm:text-base lg:text-lg font-normal leading-relaxed", activeTheme.text)}>
+                  <div className="flex-1 flex flex-col justify-start items-start max-w-5xl py-2 sm:py-4 overflow-y-auto pr-2">
+                    <div className={cn("leading-relaxed tracking-normal", getIntroContentClass(textScale, currentSlide.content), activeTheme.text)}>
                       <MathRenderer text={currentSlide.content} />
                     </div>
                   </div>
                 ) : (
                   <div
                     className={cn(
-                      "font-normal leading-relaxed max-w-4xl flex-1 overflow-y-auto pr-2",
-                      (currentSlide.content?.length || 0) > 280
-                        ? "text-xs sm:text-sm lg:text-base"
-                        : "text-sm sm:text-base lg:text-lg",
+                      "font-normal leading-relaxed max-w-5xl flex-1 overflow-y-auto pr-2",
+                      getSolutionContentClass(textScale, currentSlide.content),
                       activeTheme.subtext
                     )}
                   >
@@ -639,6 +836,35 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
             </div>
           </section>
 
+          {/* Slide Text Size Scale */}
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-slate-400">
+                <Type className="h-3.5 w-3.5 text-blue-400" />
+                <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Slide Text Size</h3>
+              </div>
+              <span className="text-[11px] font-mono text-blue-400 font-semibold">
+                {TEXT_SCALE_OPTIONS[textScaleIndex]?.name}
+              </span>
+            </div>
+            <div className="grid grid-cols-4 gap-1.5 bg-slate-900/60 p-1 rounded-xl border border-slate-800">
+              {TEXT_SCALE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  onClick={() => setTextScaleDirectly(opt.id)}
+                  className={cn(
+                    "py-1.5 px-2 rounded-lg text-xs font-semibold transition-all text-center",
+                    textScale === opt.id
+                      ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 ring-1 ring-blue-400"
+                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </section>
+
           {/* Teacher / Speaker Script Notes */}
           <section className="space-y-2">
             <div className="flex items-center justify-between">
@@ -680,7 +906,7 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="text-sm sm:text-base leading-relaxed text-slate-200 bg-slate-900/80 p-4 rounded-xl border border-slate-800 font-normal select-text shadow-sm"
+                className="text-sm sm:text-base lg:text-lg leading-relaxed text-slate-200 bg-slate-900/80 p-4 sm:p-5 rounded-xl border border-slate-800 font-normal select-text shadow-sm"
               >
                 <MathRenderer text={currentSlide.notes} />
               </motion.div>
@@ -740,7 +966,7 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
             </button>
           </div>
           <p className="text-[10px] text-center text-slate-500">
-            Keyboard Shortcuts: <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300">Space</kbd> / <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300">→</kbd> Next • <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300">F</kbd> Fullscreen
+            Keyboard Shortcuts: <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300">Space</kbd> / <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300">→</kbd> Next • <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300">F</kbd> Fullscreen • <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300">+/-</kbd> Text Size
           </p>
         </div>
       </div>
