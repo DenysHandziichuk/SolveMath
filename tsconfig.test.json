@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noEmit": false,
+    "incremental": false,
+    "outDir": ".test-build",
+    "rootDir": "."
+  },
+  "include": ["lib/json-extractor.ts", "tests/**/*.test.ts"],
+  "exclude": ["node_modules", ".test-build"]
+}
