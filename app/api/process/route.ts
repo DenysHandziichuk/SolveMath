@@ -23,9 +23,9 @@ export async function POST(req: NextRequest) {
 Carefully examine the provided screenshot and identify ALL distinct math questions, exercises, or exam problems.
 
 CRITICAL INSTRUCTIONS:
-1. Extract EVERY distinct problem separately into the 'questions' array. Never merge multiple distinct numbered/lettered questions into one problem.
+1. Extract EVERY distinct TOP-LEVEL problem separately into the 'questions' array. A parent question such as C1 or C2 and ALL of its lettered or Roman-numeral subparts form ONE question entry. Do not split a), b), c), etc. into separate selectable questions. Never merge different parent questions.
 2. Preserve original question labels/numbers exactly as shown in the image (e.g., "C1", "C2", "C3", "C4", "1a", "Question 1", "Exercise 2").
-3. MULTI-PART QUESTIONS INTEGRITY: If a question has subparts like a), b), c) or i), ii) (e.g., "Sketch the graph of a quartic function that: a) has line symmetry, b) does not have line symmetry" or "Describe the similarities between: a) the lines y = x and y = -x... b) the parabolas y = x^2 and y = -x^2..."), you MUST transcribe ALL subparts completely in the 'text' field! NEVER truncate, summarize, or drop subparts a), b), etc.
+3. MULTI-PART QUESTIONS INTEGRITY: Transcribe the complete shared instructions AND EVERY subpart, preserving the labels and order, in the parent's 'text' field. Put each subpart on its own line using \\n in the JSON string. There is NO two-part limit: include a) through f), or any other number of visible subparts. If C1 has a) and b), return one C1 entry containing both. If C2 has a) through f), return one C2 entry containing all six. Check the image again to confirm the last subpart of every parent is included. NEVER truncate, summarize, invent, or drop subparts.
 4. Accurately transcribe all mathematical expressions and equations into standard LaTeX enclosed in $...$ (e.g. $\\frac{a}{b}$, $\\div$, $\\neq$, $\\sqrt{x}$, $y = x^4 - 4x^2$).
 5. Categorize each problem into its curriculum topic (e.g., "Rational Functions & Expressions", "Polynomial Equations & Functions", "Trigonometric Functions", "Exponential & Logarithmic Functions", "Calculus & Rates of Change").
 6. Assign a difficulty rating from 1 to 10.
@@ -44,7 +44,7 @@ Return strictly valid JSON matching this schema:
 }`;
 
     const userPrompt =
-      "Analyze this screenshot and identify all distinct math questions and exercises (preserving labels like C1, C2, C3, C4 or 1a, 2b). Make sure all subparts (a, b, c) are completely included in each question. Return strictly valid JSON starting with { on the first character.";
+      "Analyze this screenshot and identify each parent math question, preserving its label. Keep every parent and ALL its subparts together in one question entry, with the complete instructions and original subpart labels. Verify every visible part is included, even when there are more than two. Return strictly valid JSON starting with { on the first character.";
 
     const useNvidia = Boolean(process.env.NVIDIA_API_KEY || !process.env.GROQ_API_KEY);
     const model = useNvidia
@@ -73,7 +73,7 @@ Return strictly valid JSON matching this schema:
               },
             ],
             model,
-            max_tokens: 2500,
+            max_tokens: 6000,
             temperature: 0.1,
           },
           { timeout: 60000 }
@@ -100,6 +100,7 @@ Return strictly valid JSON matching this schema:
             ],
             model: "meta-llama/llama-4-scout-17b-16e-instruct",
             response_format: { type: "json_object" },
+            max_tokens: 6000,
             temperature: 0.1,
           });
           content = fallback.choices[0]?.message?.content || null;
@@ -126,6 +127,7 @@ Return strictly valid JSON matching this schema:
         ],
         model: "meta-llama/llama-4-scout-17b-16e-instruct",
         response_format: { type: "json_object" },
+        max_tokens: 6000,
         temperature: 0.1,
       });
       content = completion.choices[0]?.message?.content || null;
