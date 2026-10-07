@@ -28,6 +28,17 @@ export interface ExtractedSolution {
   graphs?: Record<string, unknown>[];
 }
 
+/** Find explicit subpart labels without mistaking LaTeX expressions for parts. */
+export function getQuestionPartLabels(text: string): string[] {
+  const prose = text
+    .replace(/\$\$[\s\S]*?\$\$|\$[^$\n]*?\$/g, " ")
+    .replace(/\*\*|__/g, "");
+  const markers = prose.matchAll(
+    /(?:^|[\s,;:])(?:\(([a-z]|[ivxlcdm]+)\)|([a-z]|[ivxlcdm]+)\)|Part\s+([a-z]|[ivxlcdm]+|\d+)\s*[:.)-])(?=\s)/gi
+  );
+  return [...new Set(Array.from(markers, (match) => (match[1] || match[2] || match[3]).toLowerCase()))];
+}
+
 /**
  * Cleans conversational filler phrases from presentation scripts while
  * strictly preserving exact mathematical terminology and expressions.
@@ -247,8 +258,8 @@ export function parseQuestionsFromRawText(raw: string): ExtractedQuestion[] {
     }
     if (line.startsWith("```")) continue;
 
-    // Keep subparts like a), b), (a), (b), Part a, Part b attached to the active problem:
-    const isSubpartLine = /^(?:[#*_\s]*)(?:[a-z]\)|\([a-z]\)|Part\s+[a-z]\b)/i.test(line);
+    // Lettered and Roman-numeral subparts belong to the active parent question.
+    const isSubpartLine = /^(?:[#*_\s]*)(?:[a-z]\)|[ivxlcdm]+\)|\([a-z]\)|\([ivxlcdm]+\)|Part\s+(?:[a-z]|[ivxlcdm]+)\b)/i.test(line);
     if (isSubpartLine && currentId) {
       currentLines.push(line);
       continue;
@@ -273,10 +284,9 @@ export function parseQuestionsFromRawText(raw: string): ExtractedQuestion[] {
         headerMatch[3] ||
         headerMatch[4] ||
         headerMatch[5] ||
-        headerMatch[6] ||
         `Q${questions.length + 1}`;
       currentId = idPart.toUpperCase();
-      const remainder = headerMatch[7]?.trim();
+      const remainder = headerMatch[6]?.trim();
       if (remainder) {
         currentLines.push(remainder);
       }
@@ -321,9 +331,8 @@ function cleanSlideText(raw: string, isProblemSlide: boolean = false): string {
 }
 
 /**
- * Helper: Normalize Solution Structure
- * - When needsGraph === true: EXACTLY 4 slides or 3 slides (Problem, Solution, Conclusion)
- * - When needsGraph === false: EXACTLY 3 slides (Problem, Solution, Conclusion)
+ * Normalize slide roles while preserving every solution part and its graphs.
+ * The original question is authoritative for the problem slide.
  */
 export function normalizeSolution(
   data: unknown,
@@ -337,110 +346,13 @@ export function normalizeSolution(
         ? isGeometryOrGraphingTask(problemText, topic)
         : Boolean(obj.graphData && (obj.graphData as Record<string, unknown>).functions);
 
-      let inputSlides = obj.slides as Record<string, unknown>[];
-
-      if (!needsGraph) {
-        // Evidence is ONLY needed if the graph will help show the solution.
-        // For pure algebra, filter out any evidence/graph slides.
-        const filtered = inputSlides.filter((s) => {
-          const type = String(s.type || "").toLowerCase();
-          const title = String(s.title || "").toLowerCase();
-          if (type === "graph" || type === "evidence") return false;
-          if (title.includes("evidence") || title.includes("verification") || title.includes("proof")) return false;
-          return true;
-        });
-
-        if (filtered.length >= 4) {
-          // If already 4 or more slides, preserve intro, first 2 solution slides, and conclusion
-          const introSlide = filtered[0];
-          const conclusionSlide = filtered[filtered.length - 1];
-          const middleSlides = filtered.slice(1, -1);
-          inputSlides = [introSlide, middleSlides[0], middleSlides[1], conclusionSlide];
-        } else if (filtered.length === 3) {
-          const introSlide = filtered[0];
-          const middleSlide = filtered[1];
-          const conclusionSlide = filtered[2];
-          const midContent = String(middleSlide.content || middleSlide.text || "");
-
-          // Check if middle slide is long or has 2 distinct subparts to break into 2 slides
-          const dividerMatch =
-            midContent.match(/\n\s*---\s*\n/) ||
-            midContent.match(/\n\n(?=\*{0,2}(?:Part\s+[bB]|[bB]\)|2\.|Question\s+2|Are all odd|Odd-Degree)\b)/i);
-
-          if (dividerMatch && dividerMatch.index !== undefined && midContent.length > 300) {
-            const part1Content = midContent.slice(0, dividerMatch.index).trim();
-            const part2Content = midContent.slice(dividerMatch.index + dividerMatch[0].length).trim();
-
-            if (part1Content.length > 30 && part2Content.length > 30) {
-              const part1Slide = {
-                title: "Solution",
-                subtitle: String(middleSlide.subtitle || "").includes("Part") ? middleSlide.subtitle : "Part 1: Explanation",
-                content: part1Content,
-                notes: middleSlide.notes || "Let's examine the first part of the problem step-by-step.",
-                type: "solution",
-              };
-              const part2Slide = {
-                title: "Solution",
-                subtitle: "Part 2: Explanation",
-                content: part2Content,
-                notes: middleSlide.notes || "Now let's examine the second part of the problem.",
-                type: "solution",
-              };
-              inputSlides = [introSlide, part1Slide, part2Slide, conclusionSlide];
-            } else {
-              inputSlides = [introSlide, middleSlide, conclusionSlide];
-            }
-          } else {
-            inputSlides = [introSlide, middleSlide, conclusionSlide];
-          }
-        } else if (filtered.length === 2) {
-          inputSlides = filtered;
-        } else {
-          inputSlides = inputSlides.slice(0, 3);
-        }
-
-        return {
-          explanation: String(obj.explanation || "Problem Solution"),
-          slides: inputSlides.map((s: Record<string, unknown>, idx: number, arr: Record<string, unknown>[]) => {
-            const isFirst = idx === 0;
-            const isLast = idx === arr.length - 1;
-            const rawTitle = isFirst ? "Problem" : isLast ? "Conclusion" : "Solution";
-
-            let rawContent = String(s.content || s.text || "");
-            let cleaned = cleanSlideText(rawContent, isFirst);
-            if (isFirst && (!cleaned || cleaned.length < 5) && problemText) {
-              cleaned = cleanSlideText(problemText, true);
-            }
-
-            return {
-              title: rawTitle,
-              subtitle: s.subtitle ? String(s.subtitle) : (topic || "Advanced Functions"),
-              content: cleaned,
-              notes: cleanSpeakerScript(
-                String(s.notes || s.script || "Let's work through the problem step by step to find the solution.")
-              ),
-              type: isFirst ? "intro" : isLast ? "conclusion" : "solution",
-            };
-          }),
-          graphData: undefined,
-        };
-      }
-
-      // When needsGraph is true (visual graph helps show the solution) -> strictly 4 slides
-      if (inputSlides.length > 4) {
-        const introSlide = inputSlides[0];
-        const solutionSlide = {
-          title: "Solution",
-          subtitle: inputSlides[1]?.subtitle || inputSlides[2]?.subtitle || topic || "Step-by-Step Solution",
-          content: [inputSlides[1]?.content, inputSlides[2]?.content].filter(Boolean).join("\n\n"),
-          notes: inputSlides[1]?.notes || inputSlides[2]?.notes || "Work through the mathematical solution.",
-          type: "solution",
-        };
-        const evidenceSlide = inputSlides[inputSlides.length - 2];
-        const conclusionSlide = inputSlides[inputSlides.length - 1];
-        inputSlides = [introSlide, solutionSlide, evidenceSlide, conclusionSlide];
-      }
-
+      const isGraphSlide = (slide: Record<string, unknown>) =>
+        /^(?:graph|evidence|comparison)$/i.test(String(slide.type || "")) ||
+        /^(?:evidence|graph|visual|plot|coordinate)\b/i.test(String(slide.title || ""));
+      const inputSlides = (obj.slides as Record<string, unknown>[]).filter(
+        (slide) => needsGraph || !isGraphSlide(slide)
+      );
+      if (inputSlides.length === 0) return null;
 
       // Extract graphs or graphData from obj or slide level
       const solutionGraphs =
@@ -467,25 +379,14 @@ export function normalizeSolution(
         }
       }
 
-      const standardTitles =
-        inputSlides.length === 3
-          ? ["Problem", "Solution", "Conclusion"]
-          : ["Problem", "Solution", "Evidence", "Conclusion"];
-      const standardTypes =
-        inputSlides.length === 3
-          ? ["intro", "solution", "conclusion"]
-          : ["intro", "solution", "graph", "conclusion"];
-
       return {
         explanation: String(obj.explanation || "Problem Solution"),
-        slides: inputSlides.slice(0, 4).map((s: Record<string, unknown>, idx: number) => {
-          let rawTitle = standardTitles[idx] || `Slide ${idx + 1}`;
-
-          let rawContent = String(s.content || s.text || "");
-          let cleaned = cleanSlideText(rawContent, idx === 0);
-          if (idx === 0 && (!cleaned || cleaned.length < 5) && problemText) {
-            cleaned = cleanSlideText(problemText, true);
-          }
+        slides: inputSlides.map((s, idx) => {
+          const isFirst = idx === 0;
+          const isLast = idx === inputSlides.length - 1;
+          const isGraph = needsGraph && !isFirst && !isLast && isGraphSlide(s);
+          const title = isFirst ? "Problem" : isLast ? "Conclusion" : isGraph ? "Evidence" : "Solution";
+          const rawContent = isFirst && problemText ? problemText : String(s.content || s.text || "");
 
           const slideGraphs = Array.isArray(s.graphs)
             ? (s.graphs as Record<string, unknown>[])
@@ -493,19 +394,19 @@ export function normalizeSolution(
           const slideGraphData = (s.graphData as Record<string, unknown>) || undefined;
 
           return {
-            title: rawTitle,
+            title,
             subtitle: s.subtitle ? String(s.subtitle) : (topic || "Advanced Functions"),
-            content: cleaned,
+            content: cleanSlideText(rawContent, isFirst),
             notes: cleanSpeakerScript(
               String(s.notes || s.script || "Let's work through the problem step by step to find the solution.")
             ),
-            type: standardTypes[idx] || "solution",
-            graphData: slideGraphData,
-            graphs: slideGraphs,
+            type: isFirst ? "intro" : isLast ? "conclusion" : isGraph ? "graph" : "solution",
+            graphData: needsGraph ? slideGraphData : undefined,
+            graphs: needsGraph ? slideGraphs : undefined,
           };
         }),
-        graphData: liftedGraphData,
-        graphs: liftedGraphs,
+        graphData: needsGraph ? liftedGraphData : undefined,
+        graphs: needsGraph ? liftedGraphs : undefined,
       };
     }
   }
@@ -627,20 +528,6 @@ export function extractJson<T = Record<string, unknown>>(
           (matchingRaw.text.includes("parabolas") && !text.includes("parabolas"))
         ) {
           text = matchingRaw.text;
-        }
-      }
-
-      // Check specifically if C3 in raw text has subpart b
-      if (q.id === "C3" || /quartic.*symmetry/i.test(text)) {
-        if (/does not have line symmetry/i.test(raw) && !/does not have line symmetry/i.test(text)) {
-          text = "Sketch the graph of a quartic function that: a) has line symmetry, b) does not have line symmetry";
-        }
-      }
-
-      // Check specifically if C1 in raw text has parabolas
-      if (q.id === "C1" || /similarities between/i.test(text)) {
-        if (/parabolas y\s*=\s*x\^?2/i.test(raw) && !/parabola|even-degree/i.test(text)) {
-          text = "Describe the similarities between: a) the lines $y = x$ and $y = -x$ and the graphs of other odd-degree polynomial functions, b) the parabolas $y = x^2$ and $y = -x^2$ and the graphs of other even-degree polynomial functions";
         }
       }
 
@@ -791,7 +678,6 @@ export function extractJson<T = Record<string, unknown>>(
       )
       .trim();
     if (fallbackText.length === 0) fallbackText = "Solve the given equation.";
-    else if (fallbackText.length > 400) fallbackText = fallbackText.slice(0, 400);
 
     return {
       questions: [
@@ -860,16 +746,12 @@ export function parseSolutionFromMarkdown(
       }
     }
 
-    const standardTitles = ["Problem", "Solution", "Evidence", "Conclusion"];
-    const standardTypes = ["intro", "solution", "evidence", "conclusion"];
-    const currentIdx = slides.length;
-
     slides.push({
-      title: title || standardTitles[currentIdx] || `Slide ${currentIdx + 1}`,
+      title,
       subtitle: "Mathematical Derivation",
       content: contentLines.join("\n") || title,
       notes,
-      type: standardTypes[Math.min(currentIdx, 3)],
+      type: /^(?:evidence|graph|visual|plot|coordinate)\b/i.test(title) ? "graph" : "solution",
     });
   }
 
@@ -1511,6 +1393,11 @@ $$\\boxed{f(-x) = -f(x) \\implies 180^\\circ \\text{ rotation about origin: } (x
 }
 
 export function generateCurriculumSolution(problemText: string, topic?: string): ExtractedSolution {
+  const solution = buildCurriculumSolution(problemText, topic);
+  return normalizeSolution(solution, problemText, topic) || solution;
+}
+
+function buildCurriculumSolution(problemText: string, topic?: string): ExtractedSolution {
   const cleanTopic = topic || detectTopic(problemText);
   const isRational = cleanTopic.includes("Rational") || /\\div|\\frac|denominator|restriction|simplif/i.test(problemText);
   const isTrig = cleanTopic.includes("Trigonometric") || /sin|cos|tan|radian/i.test(problemText);
@@ -1592,7 +1479,7 @@ interface ParsedFactors {
 
 function extractFactorsFromProblem(text: string): ParsedFactors | null {
   // Normalize the text: remove LaTeX wrappers and dollar signs
-  let clean = text
+  const clean = text
     .replace(/\$\$/g, "")
     .replace(/\$/g, "")
     .replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, "($1)/($2)")
@@ -1820,7 +1707,7 @@ $$${restrictionValues.map(v => `x \\neq ${v}`).join(", \\quad ")}$$`,
 
 function buildGenericSolution(problemText: string, topic: string, formula: string, isTrig: boolean): ExtractedSolution {
   const needsGraph = isGeometryOrGraphingTask(problemText, topic);
-  const displayProblem = formula || problemText.slice(0, 160);
+  const displayProblem = problemText || formula;
 
   // Check if problem asks why y = c is a polynomial or about polynomial definitions
   const isPolyDef = /why.*(y\s*=\s*\d+|function.*polynomial|constant.*polynomial)|polynomial.*function.*y\s*=\s*\d+|explain\s+why.*polynomial/i.test(problemText);
