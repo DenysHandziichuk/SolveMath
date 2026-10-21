@@ -83,8 +83,8 @@ test("OCR text keeps both parent questions and all their original subparts", () 
   const raw = `Communicate Your Understanding\nC1 ${speedQuestion}\nC2 ${rateQuestion}`;
   const questions = parseQuestionsFromRawText(raw);
   assert.deepEqual(questions.map((question) => question.id), ["C1", "C2"]);
-  assert.equal(questions[0].text, speedQuestion.replace(/\s+/g, " "));
-  assert.equal(questions[1].text, rateQuestion.replace(/\s+/g, " "));
+  assert.equal(questions[0].text, speedQuestion);
+  assert.equal(questions[1].text, rateQuestion);
 });
 
 test("unrelated questions cannot supply invented subparts to C1", () => {
