@@ -8,11 +8,14 @@ export const NVIDIA_DEFAULT_MODEL =
   process.env.NVIDIA_MODEL || "nvidia/nemotron-3-ultra-550b-a55b";
 
 export const NVIDIA_FALLBACK_MODEL =
-  "moonshotai/kimi-k3";
+  process.env.NVIDIA_FALLBACK_MODEL || "nvidia/nemotron-3.5-super-vl-120b-a12b";
 
 // NVIDIA NIM vision model for document/exam OCR extraction
 export const NVIDIA_VISION_MODEL =
-  process.env.NVIDIA_VISION_MODEL || "meta/llama-3.2-11b-vision-instruct";
+  process.env.NVIDIA_VISION_MODEL || "nvidia/nemotron-3.5-super-vl-120b-a12b";
+
+export const NVIDIA_VISION_FALLBACK_MODEL =
+  process.env.NVIDIA_VISION_FALLBACK_MODEL || "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning";
 
 export function getNvidiaClient(): OpenAI {
   const apiKey =
