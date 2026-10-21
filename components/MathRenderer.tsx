@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import katex from "katex";
 import { cn } from "@/lib/utils";
+import { normalizeSlideLineBreaks } from "@/lib/slide-text";
 
 interface MathRendererProps {
   text: string;
@@ -249,11 +250,8 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
       }
     };
 
-    // Split multi-line text (supporting both raw \n and escaped \n, ignoring empty lines)
-    // IMPORTANT: Only replace escaped \n when NOT part of LaTeX commands (e.g. \neq, \nabla, \not, etc.)
-    const normalizedText = text
-      .replace(/\\r\\n/g, "\n")
-      .replace(/\\n(?!(eq|ne|not|nu|nabla|natural|nearrow|neg|newline|norm|ni|nsubseteq|nparallel)\b)/gi, "\n");
+    // Apply the same formatting to newly generated and already saved presentations.
+    const normalizedText = normalizeSlideLineBreaks(text);
     const lines = normalizedText.split("\n").filter((l) => l.trim().length > 0);
 
     // Helper to render markdown bold/italic in prose without raw asterisks
