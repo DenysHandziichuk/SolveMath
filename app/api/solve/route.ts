@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { nvidia, NVIDIA_DEFAULT_MODEL, NVIDIA_FALLBACK_MODEL } from "@/lib/nvidia";
 import { groq } from "@/lib/groq";
-import { extractJson, generateCurriculumSolution, getQuestionPartLabels, isGeometryOrGraphingTask } from "@/lib/json-extractor";
+import { requestSolutionCompletion } from "@/lib/solution-completion";
+import { getQuestionPartLabels, isGeometryOrGraphingTask } from "@/lib/json-extractor";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +34,13 @@ export async function POST(req: NextRequest) {
     const systemPrompt = `You are an expert mathematics educator and presentation designer.
 Generate an authentic, clear, mathematically rigorous, and student-friendly classroom presentation that solves this problem.
 Topic: ${questionTopic}
+
+LANGUAGE & TONE:
+- Write the explanation, subtitles, slide content, and speaker notes in plain, modern English, like a teacher explaining the work out loud to a student.
+- Use short, direct sentences and everyday connecting words: "so", "because", "then", and "this means".
+- Do not use formal transitions such as "thus", "hence", "therefore", "consequently", "thereby", "furthermore", or "moreover". For example, write "So x = 4" instead of "Thus, x = 4".
+- Keep precise mathematical terms and theorem names. Write "if and only if" instead of the abbreviation "iff" in explanations.
+- Preserve the original problem statement exactly, even if it uses formal language. These language rules apply to the explanation you generate.
 
 SLIDE DESIGN & FIT RULES:
 - SLIDE FIT CONSTRAINT:
@@ -108,126 +115,28 @@ STRICT CONSTRAINTS:
 - Slide titles MUST be: "Problem", "Solution", and "Conclusion".
 - Slide types MUST be: "intro", "solution", and "conclusion".
 - Use $...$ for inline math, $$...$$ for display math in content strings. NEVER wrap regular English words or full sentences inside $...$.
+- JSON-escape every LaTeX backslash. For example, the JSON content string must contain "$x \\\\neq 0$" so parsing preserves the LaTeX command. Use JSON newline escapes between steps and keep each math delimiter pair on the same line.
+- Use the correct named theorem and verify final answers by substitution or expansion when applicable. Show the actual calculation; avoid generic claims that a solution has been verified.
+- Put detailed spoken explanations in notes. Keep slide content to short, complete mathematical steps with ordinary prose outside the math delimiters.
+- Start EVERY labeled item (A:, B:, a), b), 1., 2., etc.) on its own new line. Keep each label and its first equation together. Never append the next item after a semicolon on the previous item's line.
 - Respond with raw JSON only. No markdown fences, no conversational preamble.`;
 
     const userPrompt = `Solve this COMPLETE problem step-by-step and generate the presentation (Problem, one or more Solution slides for EVERY subpart, Conclusion). ${partRequirement}\n${questionText}`;
 
-    const useNvidia = Boolean(process.env.NVIDIA_API_KEY || !process.env.GROQ_API_KEY);
-    const primaryModel = process.env.NVIDIA_MODEL || NVIDIA_DEFAULT_MODEL;
-    const fallbackModel = NVIDIA_FALLBACK_MODEL;
-
-    let content: string | null = null;
-
-    if (useNvidia) {
-      // 1. Primary Model: Nemotron 3 Ultra 550B
-      try {
-        console.log(`[Solve] Calling primary model: ${primaryModel}`);
-        const completion = await nvidia.chat.completions.create(
-          {
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: userPrompt },
-            ],
-            model: primaryModel,
-            max_tokens: maxTokens,
-            temperature: 0.15,
-          },
-          { timeout: 60000 }
-        );
-        content = completion.choices[0]?.message?.content || null;
-      } catch (primaryErr) {
-        console.warn(`[Solve] Primary model ${primaryModel} failed:`, primaryErr);
+    const data = await requestSolutionCompletion(
+      {
+        questionText, questionTopic, systemPrompt, userPrompt, maxTokens,
+      },
+      {
+        groq: process.env.GROQ_API_KEY ? groq : undefined,
       }
-
-      // 2. Fallback Model: Kimi K3
-      if (!content && fallbackModel && fallbackModel !== primaryModel) {
-        try {
-          console.log(`[Solve] Trying fallback model: ${fallbackModel}`);
-          const fallbackCompletion = await nvidia.chat.completions.create(
-            {
-              messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: userPrompt },
-              ],
-              model: fallbackModel,
-              max_tokens: maxTokens,
-              temperature: 0.15,
-            },
-            { timeout: 45000 }
-          );
-          content = fallbackCompletion.choices[0]?.message?.content || null;
-        } catch (fbErr) {
-          console.warn(`[Solve] Fallback model ${fallbackModel} failed:`, fbErr);
-        }
-      }
-
-      // 3. Vision/Instruct Fallback: Llama 3.2 11B
-      if (!content) {
-        try {
-          console.log("[Solve] Trying Llama 3.2 11B fallback");
-          const visionCompletion = await nvidia.chat.completions.create(
-            {
-              messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: userPrompt },
-              ],
-              model: "meta/llama-3.2-11b-vision-instruct",
-              max_tokens: maxTokens,
-              temperature: 0.15,
-            },
-            { timeout: 30000 }
-          );
-          content = visionCompletion.choices[0]?.message?.content || null;
-        } catch (vErr) {
-          console.warn("[Solve] Llama 3.2 11B fallback failed:", vErr);
-        }
-      }
-
-      // 4. Groq Fallback if key available
-      if (!content && process.env.GROQ_API_KEY) {
-        try {
-          console.log("[Solve] Trying Groq fallback");
-          const groqFallback = await groq.chat.completions.create(
-            {
-              messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: userPrompt },
-              ],
-              model: "llama-3.3-70b-versatile",
-              response_format: { type: "json_object" },
-              max_tokens: maxTokens,
-              temperature: 0.15,
-            },
-            { timeout: 25000 }
-          );
-          content = groqFallback.choices[0]?.message?.content || null;
-        } catch (groqErr) {
-          console.warn("[Solve] Groq fallback failed:", groqErr);
-        }
-      }
-    } else {
-      const completion = await groq.chat.completions.create({
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        model: "llama-3.3-70b-versatile",
-        response_format: { type: "json_object" },
-        max_tokens: maxTokens,
-        temperature: 0.15,
-      });
-      content = completion.choices[0]?.message?.content || null;
-    }
-
-    if (!content) {
-      throw new Error("Empty response from language model");
-    }
-
-    const data = extractJson(content, "solution", questionText, questionTopic);
+    );
     return NextResponse.json(data);
   } catch (error) {
-    console.warn("External model calls failed or timed out, generating curriculum solution fallback:", error);
-    const fallbackData = generateCurriculumSolution(questionText, questionTopic);
-    return NextResponse.json(fallbackData);
+    console.warn("Groq presentation generation failed:", error);
+    return NextResponse.json(
+      { error: "A complete solution could not be generated right now. Please try again shortly." },
+      { status: 503, headers: { "Retry-After": "5" } }
+    );
   }
 }
