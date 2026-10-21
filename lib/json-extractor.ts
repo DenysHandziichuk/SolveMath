@@ -4,6 +4,8 @@
  * or { slides: [...] } structure even on conversational, markdown, or malformed outputs.
  */
 
+import { normalizeSlideLineBreaks } from "./slide-text";
+
 export interface ExtractedQuestion {
   id: string;
   text: string;
@@ -26,6 +28,16 @@ export interface ExtractedSolution {
   slides: ExtractedSlide[];
   graphData?: Record<string, unknown>;
   graphs?: Record<string, unknown>[];
+}
+
+/** Reject incomplete decks and the old generic checklist masquerading as a solution. */
+export function isCompleteSolution(solution: ExtractedSolution): boolean {
+  const answerSlides = solution.slides.filter((slide) => slide.type === "solution");
+  const conclusion = solution.slides.at(-1);
+  const answer = [...answerSlides, ...(conclusion ? [conclusion] : [])].map((slide) => slide.content).join("\n");
+  return solution.slides.length >= 3 && answerSlides.some((slide) => slide.content.trim()) &&
+    conclusion?.type === "conclusion" && Boolean(conclusion.content.trim()) &&
+    !/Verified Solution Satisfies All Conditions|Mathematical Resolution & Analysis|Trigonometric Analysis & Resolution|Systematically execute the algebraic and geometric derivation steps/i.test(answer);
 }
 
 /** Find explicit subpart labels without mistaking LaTeX expressions for parts. */
@@ -202,7 +214,7 @@ export function sanitizeJsonString(slice: string): string {
 export function parseQuestionsFromRawText(raw: string): ExtractedQuestion[] {
   if (!raw || typeof raw !== "string") return [];
 
-  const clean = raw.trim();
+  const clean = decodeQuestionLineBreaks(raw).trim();
   // Strip conversational preambles like "Sure, here are the math questions from the image:"
   const preambleRegex =
     /^(?:sure,?\s*(?:here\s+(?:are|is))?|here\s+(?:are|is)|based\s+on|below\s+(?:are|is)|from\s+the\s+image|i\s+(?:have|can)|the\s+following)[^\n:]*:\s*/i;
@@ -215,11 +227,11 @@ export function parseQuestionsFromRawText(raw: string): ExtractedQuestion[] {
 
   const flush = () => {
     if (currentLines.length > 0) {
-      let text = currentLines.join(" ").replace(/\s+/g, " ").trim();
+      let text = currentLines.join("\n").trim();
       text = text.replace(/^[:.\-–—\s]+/, "").trim();
 
       // Check if problem text itself starts with a label like "C1 Describe..."
-      const cMatch = text.match(/^([A-Za-z]\d+)\s*[:.\-–—\s]\s*(.+)$/);
+      const cMatch = text.match(/^([A-Za-z]\d+)\s*[:.\-–—\s]\s*([\s\S]+)$/);
       if (cMatch) {
         if (
           !currentId ||
@@ -311,9 +323,14 @@ export function parseQuestionsFromRawText(raw: string): ExtractedQuestion[] {
   return questions;
 }
 
+/** Some vision models emit literal \\n even inside JSON strings. Leave \\neq intact. */
+function decodeQuestionLineBreaks(text: string): string {
+  return text.replace(/\\r\\n|\\n(?=\s|\\n|[A-Z\d([*#]|[a-z]\)|$)/g, "\n");
+}
+
 function cleanSlideText(raw: string, isProblemSlide: boolean = false): string {
   if (!raw) return "";
-  let text = raw
+  let text = (isProblemSlide ? raw : normalizeSlideLineBreaks(raw))
     .replace(/(?:^|\n)[ \t]*(?:#+\s*)?(?:key takeaways?|takeaways?|governing conditions?)\s*[:.\-–—]*/gi, "\n")
     .replace(/[ \t]*(?:state all governing(?: mathematical)? conditions?\.?)/gi, "")
     .replace(/\n{3,}/g, "\n\n")
@@ -464,7 +481,7 @@ export function extractJson<T = Record<string, unknown>>(
         );
 
         // Strip duplicate label from start of text if present (e.g. "C1 Describe..." -> "Describe...")
-        const labelPrefixMatch = text.match(/^([A-Za-z]\d+)\s*[:.\-–—\s]\s*(.+)$/);
+        const labelPrefixMatch = text.match(/^([A-Za-z]\d+)\s*[:.\-–—\s]\s*([\s\S]+)$/);
         if (labelPrefixMatch) {
           if (!id || id === String(idx + 1) || id.startsWith("Q") || id.startsWith("Problem")) {
             id = labelPrefixMatch[1].toUpperCase();
@@ -472,7 +489,7 @@ export function extractJson<T = Record<string, unknown>>(
           text = labelPrefixMatch[2];
         }
 
-        text = formatQuestionSubparts(text);
+        text = formatQuestionSubparts(decodeQuestionLineBreaks(text));
 
         return {
           id,
@@ -515,29 +532,22 @@ export function extractJson<T = Record<string, unknown>>(
 
   const finalizeQuestions = (normResult: { questions: ExtractedQuestion[] } | null): T | null => {
     if (!normResult || normResult.questions.length === 0) return null;
-    const rawQuestions = parseQuestionsFromRawText(raw);
-
-    const augmented = normResult.questions.map((q) => {
-      let text = q.text;
-      const matchingRaw = rawQuestions.find((rq) => rq.id.toUpperCase() === q.id.toUpperCase());
-
-      if (matchingRaw) {
-        if (
-          matchingRaw.text.length > text.length + 8 ||
-          (matchingRaw.text.includes("line symmetry") && !text.includes("does not have line symmetry") && matchingRaw.text.includes("does not")) ||
-          (matchingRaw.text.includes("parabolas") && !text.includes("parabolas"))
-        ) {
-          text = matchingRaw.text;
-        }
-      }
-
-      return {
-        ...q,
-        text: formatQuestionSubparts(text),
-      };
+    // A valid JSON response can still contain several parent questions in one text field.
+    // Split only at explicit parent labels; subparts and unlabelled prose stay together.
+    const separated = normResult.questions.flatMap((q) => {
+      const text = decodeQuestionLineBreaks(q.text);
+      const header = /^\d+$/.test(q.id) ? `${q.id}.` : q.id;
+      const parsed = parseQuestionsFromRawText(`${header} ${text}`);
+      return parsed.length > 1
+        ? parsed.map((part) => ({ ...part, difficulty: q.difficulty }))
+        : [{ ...q, text }];
     });
 
-    return { questions: augmented } as unknown as T;
+    // Parsed text is authoritative. Re-reading the raw JSON as prose can leak
+    // escaped strings and trailing JSON fields into the final question.
+    return {
+      questions: separated.map((q) => ({ ...q, text: formatQuestionSubparts(q.text) })),
+    } as unknown as T;
   };
 
   // -------------------------------------------------------------------------
@@ -1392,15 +1402,48 @@ $$\\boxed{f(-x) = -f(x) \\implies 180^\\circ \\text{ rotation about origin: } (x
   };
 }
 
+/** A complete local lesson for the conceptual placeholder question, without an API dependency. */
+export function getPolynomialPlaceholderSolution(problemText: string, topic?: string): ExtractedSolution | null {
+  const stem = problemText.replace(/\s+/g, " ").trim().replace(/^C\d+[:.)]?\s+/i, "");
+  if (!/^when and why\b[^?]*\bplaceholder\b[^?]*\bdividing a polynomial by a binomial\??$/i.test(stem)) return null;
+
+  return {
+    explanation: "Use a zero coefficient for each missing power so polynomial division keeps corresponding terms aligned.",
+    slides: [
+      {
+        title: "Problem", subtitle: topic || "Polynomial Equations & Functions", type: "intro",
+        content: problemText,
+        notes: "This question asks when a placeholder is needed in polynomial division and why leaving it out can change the calculation.",
+      },
+      {
+        title: "Solution", subtitle: "When and Why", type: "solution",
+        content: "• Use a zero coefficient as a placeholder for each missing power.\n• Write the polynomial in descending powers, including the missing term:\n$$x^3 - 4x + 3 = x^3 + 0x^2 - 4x + 3$$\n• The zero aligns like terms in long division and preserves coefficient positions in synthetic division.",
+        notes: "A missing term means its coefficient is zero. In x cubed minus four x plus three, the x squared term is missing, so write zero x squared. Adding zero does not change the polynomial. It preserves the column for x squared, which keeps subtraction aligned in long division. In synthetic division, each coefficient has a fixed position, so the zero must also be included in the coefficient row.",
+      },
+      {
+        title: "Solution", subtitle: "Example: Divide by x − 1", type: "solution",
+        content: "Synthetic division with 1: coefficients → result\n$$[1, 0, -4, 3] \\rightarrow [1, 1, -3, 0]$$\nQuotient and remainder:\n$$Q(x) = x^2 + x - 3, \\qquad R = 0$$",
+        notes: "As an illustration, divide the polynomial by x minus one using synthetic division with one. Start with coefficients one, zero, negative four, and three. Bring down one. Multiply by one and add to zero to get one. Multiply again and add to negative four to get negative three. Multiply again and add to three to get zero. The quotient is x squared plus x minus three, and the remainder is zero. Omitting the zero would incorrectly treat the cubic as a quadratic with coefficients one, negative four, and three.",
+      },
+      {
+        title: "Conclusion", subtitle: "Answer", type: "conclusion",
+        content: "**When:** A power is missing from the polynomial.\n**Why:** A zero placeholder preserves coefficient positions and aligns like terms, preventing division errors.\nA placeholder changes the written form, while the polynomial's value stays the same.",
+        notes: "Use a zero placeholder for every missing power. This keeps like terms aligned in long division and coefficients in the correct order in synthetic division. Adding a zero term preserves the original polynomial.",
+      },
+    ],
+  };
+}
+
 export function generateCurriculumSolution(problemText: string, topic?: string): ExtractedSolution {
   const solution = buildCurriculumSolution(problemText, topic);
   return normalizeSolution(solution, problemText, topic) || solution;
 }
 
 function buildCurriculumSolution(problemText: string, topic?: string): ExtractedSolution {
+  const placeholderSolution = getPolynomialPlaceholderSolution(problemText, topic);
+  if (placeholderSolution) return placeholderSolution;
   const cleanTopic = topic || detectTopic(problemText);
   const isRational = cleanTopic.includes("Rational") || /\\div|\\frac|denominator|restriction|simplif/i.test(problemText);
-  const isTrig = cleanTopic.includes("Trigonometric") || /sin|cos|tan|radian/i.test(problemText);
 
   // Section 1.3 C1: Even/odd degree vs even/odd functions
   if (/all even-degree polynomial functions even|all odd-degree polynomial functions odd|even-degree.*even.*odd-degree.*odd/i.test(problemText)) {
@@ -1454,7 +1497,7 @@ function buildCurriculumSolution(problemText: string, topic?: string): Extracted
   }
 
   // For non-rational or unparseable problems, embed the actual problem text
-  return buildGenericSolution(problemText, cleanTopic, primaryFormula, isTrig);
+  return buildGenericSolution(problemText, cleanTopic, primaryFormula);
 }
 
 interface ParsedFactors {
@@ -1705,16 +1748,17 @@ $$${restrictionValues.map(v => `x \\neq ${v}`).join(", \\quad ")}$$`,
   };
 }
 
-function buildGenericSolution(problemText: string, topic: string, formula: string, isTrig: boolean): ExtractedSolution {
+function buildGenericSolution(problemText: string, topic: string, formula: string): ExtractedSolution {
   const needsGraph = isGeometryOrGraphingTask(problemText, topic);
   const displayProblem = problemText || formula;
 
-  // Check if problem asks why y = c is a polynomial or about polynomial definitions
-  const isPolyDef = /why.*(y\s*=\s*\d+|function.*polynomial|constant.*polynomial)|polynomial.*function.*y\s*=\s*\d+|explain\s+why.*polynomial/i.test(problemText);
+  // A constant-function explanation requires an actual supplied constant.
+  // General "explain why ... polynomial" questions must not invent y = 3.
+  const constMatch = problemText.match(/\by\s*=\s*([+-]?\d+(?:\.\d+)?)(?![\w.^]|\s*[-+*/^])/i);
+  const isPolyDef = constMatch && /why|explain/i.test(problemText) && /polynomial/i.test(problemText);
 
   if (isPolyDef) {
-    const constMatch = problemText.match(/y\s*=\s*(-?\d+(?:\.\d+)?)/i);
-    const constVal = constMatch ? constMatch[1] : "3";
+    const constVal = constMatch[1];
 
     const slides: ExtractedSlide[] = [
       {
@@ -1791,52 +1835,14 @@ The exponent of $x$ is $0$, which is a non-negative integer. Therefore, $y = ${c
     };
   }
 
-  const slides: ExtractedSlide[] = [
-    {
-      title: "Problem",
-      subtitle: topic,
-      content: displayProblem,
-      notes: `Let's examine the problem carefully to understand the mathematical context and requirements.`,
-      type: "intro",
-    },
-    {
-      title: "Solution",
-      subtitle: "Explanation",
-      content: isTrig
-        ? `**Trigonometric Analysis & Resolution:**\n\n• Apply fundamental trigonometric identities and exact special angle ratios.\n• Isolate trigonometric functions over the specified domain or period interval.\n• Evaluate exact symbolic values with proper angle units.`
-        : `**Mathematical Resolution & Analysis:**\n\n• Analyze the problem statement, degrees, and governing conditions.\n• Systematically execute the algebraic and geometric derivation steps.\n• Verify functional values, symmetry, and domain restrictions across the real numbers.`,
-      notes: `Let's work through the mathematical derivation step by step to solve the problem.`,
-      type: "solution",
-    },
-    {
-      title: "Conclusion",
-      subtitle: "Summary",
-      content: `$$\\boxed{\\text{Verified Solution Satisfies All Conditions}}$$\n\n• The step-by-step mathematical reasoning confirms the final result.\n• All domain conditions and problem specifications are verified.`,
-      notes: `Here is our final verified takeaway for this problem.`,
-      type: "conclusion",
-    },
-  ];
-
+  // Keep the original question recoverable, but never fabricate an answer or a graph.
+  // Callers must request another model or report that solution generation failed.
   return {
-    explanation: `Step-by-step resolution for this ${topic} problem.`,
-    slides,
-    graphData: needsGraph
-      ? {
-          type: "function",
-          equation: "f(x)",
-          isRadian: isTrig,
-          functions: [
-            {
-              equation: "f(x)",
-              mathjs: isTrig ? "sin(x)" : "x^2 - 4",
-              color: "#38bdf8",
-            },
-          ],
-          properties: [
-            { name: "Topic", value: topic },
-          ],
-        }
-      : undefined,
+    explanation: "A solution could not be generated for this question.",
+    slides: [{
+      title: "Problem", subtitle: topic, content: displayProblem,
+      notes: "The original question is preserved. Please retry solution generation.", type: "intro",
+    }],
   };
 }
 
