@@ -84,3 +84,26 @@ test("invalid credentials stop requests to other models using the same key", asy
   });
   await assert.rejects(requestVisionCompletion(request, { nvidia }), VisionServiceUnavailableError);
 });
+
+// Regression: the polynomial worksheet's C1–C5 became three cards even though
+// the provider returned successful, syntactically valid JSON.
+test("a structurally invalid transcription recovers through the backup model", async () => {
+  const merged = JSON.stringify({ questions: [{ id: "C1", text: "Two merged questions." }] });
+  const nvidia = new OpenAI({
+    apiKey: "test-key",
+    fetch: async (_url, init) => {
+      const { model } = JSON.parse(String(init?.body));
+      return completion(model === request.model ? merged : transcription);
+    },
+  });
+  const checkedRequest = {
+    ...request,
+    validateContent: (content: string) => {
+      const data = JSON.parse(content);
+      if (data.questions.length !== 2) throw new Error("Missing printed question label");
+    },
+  };
+
+  const content = await requestVisionCompletion(checkedRequest, { nvidia });
+  assert.equal(content, transcription);
+});

@@ -67,6 +67,13 @@ export default function TryPage() {
     }
   };
 
+  const handleQuestionUpdate = (index: number, text: string) => {
+    setQuestions((current) => current.map((question, questionIndex) =>
+      questionIndex === index ? { ...question, text } : question
+    ));
+    setError(null);
+  };
+
   return (
     <div className="min-h-screen bg-[#070b12] text-slate-100 pt-32 pb-20 px-4 sm:px-6">
       {/* Background ambient lighting */}
@@ -117,7 +124,12 @@ export default function TryPage() {
             </motion.div>
           ) : questions.length > 0 ? (
             <motion.div key="questions" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
-              <QuestionSelector questions={questions} onSelect={handleQuestionSelect} isSolving={isSolving} />
+              <QuestionSelector
+                questions={questions}
+                onSelect={handleQuestionSelect}
+                onUpdate={handleQuestionUpdate}
+                isSolving={isSolving}
+              />
               <button
                 onClick={() => setQuestions([])}
                 className="mt-6 mx-auto block text-xs font-semibold text-slate-400 hover:text-white underline underline-offset-4 transition-colors"

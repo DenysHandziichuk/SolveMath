@@ -1,15 +1,17 @@
 import type OpenAI from "openai";
 import type Groq from "groq-sdk";
 
-interface VisionRequest {
+export interface VisionRequest {
   imageUrl: string;
   systemPrompt: string;
   userPrompt: string;
   model: string;
   fallbackModel: string;
+  signal?: AbortSignal;
+  validateContent?: (content: string) => void;
 }
 
-interface VisionClients {
+export interface VisionClients {
   nvidia?: OpenAI;
   groq?: Groq;
 }
@@ -42,7 +44,12 @@ export async function requestVisionCompletion(request: VisionRequest, clients: V
     },
   ];
   // Bound the whole recovery sequence, including SDK retries and other providers.
-  const signal = AbortSignal.timeout(90_000);
+  const signal = request.signal || AbortSignal.timeout(90_000);
+  const checkedContent = (choice: Parameters<typeof completeContent>[0]) => {
+    const content = completeContent(choice);
+    request.validateContent?.(content);
+    return content;
+  };
   let lastError: unknown;
 
   if (clients.nvidia) {
@@ -61,7 +68,7 @@ export async function requestVisionCompletion(request: VisionRequest, clients: V
           parameters,
           { timeout: 30000, maxRetries: 1, signal }
         );
-        return completeContent(completion.choices[0]);
+        return checkedContent(completion.choices[0]);
       } catch (error) {
         lastError = error;
         const status = error && typeof error === "object" && "status" in error ? error.status : undefined;
@@ -84,7 +91,7 @@ export async function requestVisionCompletion(request: VisionRequest, clients: V
         },
         { timeout: 30000, maxRetries: 1, signal }
       );
-      return completeContent(completion.choices[0]);
+      return checkedContent(completion.choices[0]);
     } catch (error) {
       lastError = error;
     }

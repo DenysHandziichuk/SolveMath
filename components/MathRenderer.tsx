@@ -309,7 +309,7 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
         return (
           <div
             key={lineIdx}
-            className="my-1.5 overflow-x-auto text-center font-normal tracking-normal py-0.5"
+            className="my-1.5 indent-0 overflow-x-auto text-center font-normal tracking-normal py-0.5"
             dangerouslySetInnerHTML={{ __html: renderTex(formula, true) }}
           />
         );
@@ -322,7 +322,7 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
           return (
             <span
               key={segIdx}
-              className="mx-1 inline-block"
+              className="mx-1 inline-block indent-0"
               dangerouslySetInnerHTML={{ __html: renderTex(seg.value, true) }}
             />
           );
@@ -332,7 +332,7 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
           return (
             <span
               key={segIdx}
-              className="mx-0.5 inline-block font-normal"
+              className="mx-0.5 inline-block indent-0 font-normal"
               dangerouslySetInnerHTML={{ __html: renderTex(seg.value, false) }}
             />
           );
