@@ -269,7 +269,7 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
 
         if (tok.startsWith("***") && tok.endsWith("***") && tok.length >= 6) {
           return (
-            <strong key={`${keyPrefix}-bi-${i}`} className="font-bold italic text-slate-100 dark:text-white">
+            <strong key={`${keyPrefix}-bi-${i}`} className="font-bold italic">
               {tok.slice(3, -3)}
             </strong>
           );
@@ -277,7 +277,7 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
 
         if (tok.startsWith("**") && tok.endsWith("**") && tok.length >= 4) {
           return (
-            <strong key={`${keyPrefix}-b-${i}`} className="font-bold text-slate-100 dark:text-white">
+            <strong key={`${keyPrefix}-b-${i}`} className="font-bold">
               {tok.slice(2, -2)}
             </strong>
           );
@@ -285,7 +285,7 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
 
         if (tok.startsWith("*") && tok.endsWith("*") && tok.length >= 2) {
           return (
-            <em key={`${keyPrefix}-i-${i}`} className="italic text-slate-200 dark:text-slate-300">
+            <em key={`${keyPrefix}-i-${i}`} className="italic">
               {tok.slice(1, -1)}
             </em>
           );
@@ -368,11 +368,11 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
   if (!text) return null;
 
   if (inline) {
-    return <span className={cn("inline-flex items-center flex-wrap", className)}>{renderedElements}</span>;
+    return <span className={cn("math-renderer inline-flex items-center flex-wrap", className)}>{renderedElements}</span>;
   }
 
   return (
-    <div className={cn("flex flex-col gap-3 sm:gap-4", className)}>
+    <div className={cn("math-renderer flex flex-col gap-3 sm:gap-4", className)}>
       {renderedElements}
     </div>
   );
