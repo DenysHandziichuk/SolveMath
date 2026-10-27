@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "SolveMath",
-  description: "Math presentation studio and graphing calculator.",
+  description: "Math presentation studio with editable slides, drawing tools, and lesson recording.",
 };
 
 export default function RootLayout({
