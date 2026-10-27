@@ -1,8 +1,8 @@
 "use client";
 
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import Link from "next/link";
 import {
-  Mic,
   ChevronLeft,
   ChevronRight,
   RotateCcw,
@@ -16,12 +16,18 @@ import {
   Volume2,
   VolumeX,
   Type,
+  Pencil,
 } from "lucide-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { MathRenderer } from "./MathRenderer";
 import { MathGraph } from "./MathGraph";
 import { ScreenRecorder } from "./ScreenRecorder";
 import { cn } from "@/lib/utils";
+import { SlideDrawing } from "./SlideDrawing";
+import { DrawingTools } from "./DrawingTools";
+import { SlideEditor } from "./SlideEditor";
+import { SlideStage } from "./SlideStage";
+import type { DrawingStroke, DrawingTool } from "@/lib/slide-drawing";
 
 interface GraphFunction {
   points?: { x: number; y: number }[];
@@ -52,6 +58,7 @@ export interface Slide {
   type?: string;
   graphData?: GraphData;
   graphs?: GraphData[];
+  drawings?: DrawingStroke[];
 }
 
 export interface Solution {
@@ -64,17 +71,18 @@ export interface Solution {
 export interface SolutionDisplayProps {
   solution: Solution;
   onReset: () => void;
+  onSolutionChange: (solution: Solution) => void;
 }
 
 const THEMES = {
   slate: {
-    name: "Oxford Slate",
-    bg: "bg-[#090d16]",
-    slideBg: "bg-[#0b0f19]",
-    slideBorder: "border-slate-800",
-    text: "text-white",
-    subtext: "text-slate-300",
-    accent: "#3b82f6",
+    name: "Studio",
+    bg: "bg-[#edf0eb]",
+    slideBg: "bg-[#1c2926]",
+    slideBorder: "border-[#30413b]",
+    text: "text-[#f0f3ed]",
+    subtext: "text-[#c3cdc6]",
+    accent: "#add0b6",
   },
   chalkboard: {
     name: "Chalkboard",
@@ -126,130 +134,33 @@ export const TEXT_SCALE_OPTIONS: { id: TextScale; label: string; name: string }[
 ];
 
 function getTitleClass(scale: TextScale) {
-  switch (scale) {
-    case "compact":
-      return "text-2xl sm:text-3xl lg:text-4xl";
-    case "large":
-      return "text-3xl sm:text-4xl lg:text-5xl xl:text-6xl";
-    case "xlarge":
-      return "text-4xl sm:text-5xl lg:text-6xl xl:text-7xl";
-    case "standard":
-    default:
-      return "text-3xl sm:text-4xl lg:text-5xl";
-  }
+  return { compact: "text-[60px]", standard: "text-[72px]", large: "text-[90px]", xlarge: "text-[108px]" }[scale];
 }
 
 function getIntroContentClass(scale: TextScale, content?: string) {
   const len = content?.length || 0;
-  if (len < 140) {
-    switch (scale) {
-      case "compact":
-        return "text-xl sm:text-2xl lg:text-3xl font-medium";
-      case "large":
-        return "text-3xl sm:text-4xl lg:text-5xl xl:text-6xl font-medium";
-      case "xlarge":
-        return "text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-semibold";
-      case "standard":
-      default:
-        return "text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-medium";
-    }
-  }
-  if (len < 320) {
-    switch (scale) {
-      case "compact":
-        return "text-lg sm:text-xl lg:text-2xl font-medium";
-      case "large":
-        return "text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-medium";
-      case "xlarge":
-        return "text-3xl sm:text-4xl lg:text-5xl xl:text-6xl font-semibold";
-      case "standard":
-      default:
-        return "text-xl sm:text-2xl lg:text-3xl xl:text-4xl font-medium";
-    }
-  }
-  switch (scale) {
-    case "compact":
-      return "text-base sm:text-lg lg:text-xl font-normal";
-    case "large":
-      return "text-xl sm:text-2xl lg:text-3xl xl:text-4xl font-normal";
-    case "xlarge":
-      return "text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-normal";
-    case "standard":
-    default:
-      return "text-lg sm:text-xl lg:text-2xl xl:text-3xl font-normal";
-  }
+  if (len < 140) return { compact: "text-[44px]", standard: "text-[54px]", large: "text-[68px]", xlarge: "text-[80px]" }[scale];
+  if (len < 320) return { compact: "text-[36px]", standard: "text-[44px]", large: "text-[54px]", xlarge: "text-[66px]" }[scale];
+  return { compact: "text-[28px]", standard: "text-[34px]", large: "text-[42px]", xlarge: "text-[50px]" }[scale];
 }
 
 function getSolutionContentClass(scale: TextScale, content?: string) {
   const len = content?.length || 0;
-  if (len < 250) {
-    switch (scale) {
-      case "compact":
-        return "text-base sm:text-lg lg:text-xl";
-      case "large":
-        return "text-xl sm:text-2xl lg:text-3xl xl:text-4xl";
-      case "xlarge":
-        return "text-2xl sm:text-3xl lg:text-4xl xl:text-5xl";
-      case "standard":
-      default:
-        return "text-lg sm:text-xl lg:text-2xl xl:text-3xl";
-    }
-  }
-  if (len < 650) {
-    switch (scale) {
-      case "compact":
-        return "text-sm sm:text-base lg:text-lg";
-      case "large":
-        return "text-lg sm:text-xl lg:text-2xl xl:text-3xl";
-      case "xlarge":
-        return "text-xl sm:text-2xl lg:text-3xl xl:text-4xl";
-      case "standard":
-      default:
-        return "text-base sm:text-lg lg:text-xl xl:text-2xl";
-    }
-  }
-  switch (scale) {
-    case "compact":
-      return "text-xs sm:text-sm lg:text-base";
-    case "large":
-      return "text-base sm:text-lg lg:text-xl xl:text-2xl";
-    case "xlarge":
-      return "text-lg sm:text-xl lg:text-2xl xl:text-3xl";
-    case "standard":
-    default:
-      return "text-sm sm:text-base lg:text-lg xl:text-xl";
-  }
+  if (len < 250) return { compact: "text-[36px]", standard: "text-[44px]", large: "text-[54px]", xlarge: "text-[66px]" }[scale];
+  if (len < 650) return { compact: "text-[28px]", standard: "text-[36px]", large: "text-[44px]", xlarge: "text-[54px]" }[scale];
+  return { compact: "text-[24px]", standard: "text-[30px]", large: "text-[36px]", xlarge: "text-[44px]" }[scale];
 }
 
 function getSplitSingleContentClass(scale: TextScale) {
-  switch (scale) {
-    case "compact":
-      return "text-xs sm:text-sm lg:text-base";
-    case "large":
-      return "text-lg sm:text-xl lg:text-2xl";
-    case "xlarge":
-      return "text-xl sm:text-2xl lg:text-3xl";
-    case "standard":
-    default:
-      return "text-base sm:text-lg lg:text-xl";
-  }
+  return { compact: "text-[26px]", standard: "text-[34px]", large: "text-[42px]", xlarge: "text-[50px]" }[scale];
 }
 
 function getSplitDualContentClass(scale: TextScale) {
-  switch (scale) {
-    case "compact":
-      return "text-[11px] sm:text-xs lg:text-sm";
-    case "large":
-      return "text-sm sm:text-base lg:text-lg";
-    case "xlarge":
-      return "text-base sm:text-lg lg:text-xl";
-    case "standard":
-    default:
-      return "text-xs sm:text-sm lg:text-base";
-  }
+  return { compact: "text-[22px]", standard: "text-[28px]", large: "text-[34px]", xlarge: "text-[42px]" }[scale];
 }
 
-export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
+export function SolutionDisplay({ solution, onReset, onSolutionChange }: SolutionDisplayProps) {
+  const reduceMotion = useReducedMotion();
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [copied, setCopied] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(420);
@@ -269,6 +180,21 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [drawingTool, setDrawingTool] = useState<DrawingTool>("pen");
+  const [inkColor, setInkColor] = useState("#3b82f6");
+  const [brushWidth, setBrushWidth] = useState(6);
+  const [showFullscreenTools, setShowFullscreenTools] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [graphComparisonView, setGraphComparisonView] = useState<"dual" | "a" | "b">("dual");
+
+  const selectSlide = useCallback((index: number) => {
+    setCurrentSlideIndex(index);
+    setGraphComparisonView("dual");
+    window.speechSynthesis?.cancel();
+    setIsSpeaking(false);
+  }, []);
 
   const textScaleIndex = Math.max(0, TEXT_SCALE_OPTIONS.findIndex((opt) => opt.id === textScale));
 
@@ -307,12 +233,19 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
     solution.slides?.[0] ||
     defaultSlide;
 
-  const [graphComparisonView, setGraphComparisonView] = useState<"dual" | "a" | "b">("dual");
+  const updateSlide = useCallback((slide: Slide) => {
+    const slides = solution.slides.length ? solution.slides.map((existing, index) => index === currentSlideIndex ? slide : existing) : [slide];
+    onSolutionChange({ ...solution, slides });
+  }, [solution, currentSlideIndex, onSolutionChange]);
 
-  // Reset comparison view on slide switch
-  useEffect(() => {
-    setGraphComparisonView("dual");
-  }, [currentSlideIndex]);
+  const addStroke = (stroke: DrawingStroke) => {
+    updateSlide({ ...currentSlide, drawings: [...(currentSlide.drawings || []), stroke] });
+  };
+
+  const undoDrawing = useCallback(() => {
+    if (!currentSlide.drawings?.length) return;
+    updateSlide({ ...currentSlide, drawings: currentSlide.drawings.slice(0, -1) });
+  }, [currentSlide, updateSlide]);
 
   // Determine active graphs: prioritize slide-level graphs, then solution-level graphs
   const slideGraphs: GraphData[] =
@@ -346,10 +279,6 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
 
   const activeGraphs = slideGraphs.length > 0 ? slideGraphs : (isGraphSlide ? solutionGraphs : []);
   const isMultiGraph = activeGraphs.length >= 2;
-  const hasValidGraph =
-    activeGraphs.length > 0 &&
-    activeGraphs.some((g) => (g.functions?.length || g.points?.length));
-
   // Presentation Timer
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
@@ -372,24 +301,31 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
   const toggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
       presentationAreaRef.current?.requestFullscreen?.().catch(() => {});
-      setIsFullscreen(true);
     } else {
       document.exitFullscreen?.().catch(() => {});
-      setIsFullscreen(false);
     }
   }, []);
 
   // Keyboard navigation (Arrow keys, Spacebar, F for fullscreen)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (isEditing) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undoDrawing();
+        return;
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.target instanceof HTMLElement && e.target.closest("button, a")) return;
 
       if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") {
         e.preventDefault();
-        setCurrentSlideIndex((prev) => Math.min(solution.slides.length - 1, prev + 1));
+        selectSlide(Math.min(solution.slides.length - 1, currentSlideIndex + 1));
       } else if (e.key === "ArrowLeft" || e.key === "PageUp") {
         e.preventDefault();
-        setCurrentSlideIndex((prev) => Math.max(0, prev - 1));
+        selectSlide(Math.max(0, currentSlideIndex - 1));
       } else if (e.key.toLowerCase() === "f") {
         e.preventDefault();
         toggleFullscreen();
@@ -409,7 +345,13 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [solution.slides.length, isFullscreen, toggleFullscreen, adjustTextScale, setTextScaleDirectly]);
+  }, [solution.slides.length, currentSlideIndex, selectSlide, isFullscreen, toggleFullscreen, adjustTextScale, setTextScaleDirectly, undoDrawing, isEditing]);
+
+  useEffect(() => {
+    const onFullscreenChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
 
 
   // Resizable sidebar handlers
@@ -452,17 +394,15 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
 
   const nextSlide = () => {
     if (currentSlideIndex < solution.slides.length - 1) {
-      setCurrentSlideIndex(currentSlideIndex + 1);
+      selectSlide(currentSlideIndex + 1);
     }
   };
 
   const prevSlide = () => {
     if (currentSlideIndex > 0) {
-      setCurrentSlideIndex(currentSlideIndex - 1);
+      selectSlide(currentSlideIndex - 1);
     }
   };
-
-  const [isSpeaking, setIsSpeaking] = useState(false);
 
   const toggleSpeak = () => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
@@ -483,11 +423,8 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
   };
 
   useEffect(() => {
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-      setIsSpeaking(false);
-    }
-  }, [currentSlideIndex]);
+    return () => window.speechSynthesis?.cancel();
+  }, []);
 
   const copyNote = () => {
     if (!currentSlide) return;
@@ -497,29 +434,26 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
   };
 
   return (
-    <div className={cn("fixed inset-0 z-50 flex h-[100dvh] w-screen overflow-hidden", activeTheme.bg)}>
+    <div className="presentation-workspace fixed inset-0 z-50 flex h-[100dvh] w-full flex-col overflow-hidden lg:flex-row">
       {/* ========================================================================= */}
       {/* LEFT PANEL: The 16:9 Presentation Stage (Strict 1920x1080 Aspect Ratio) */}
       {/* ========================================================================= */}
       <div
         ref={presentationAreaRef}
         id="presentation-area"
-        className={cn(
-          "relative flex flex-1 items-center justify-center p-3 sm:p-6 overflow-hidden select-none transition-colors duration-300",
-          activeTheme.bg
-        )}
+        className="presentation-area relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden select-none"
       >
+        <div className="presentation-topbar"><Link href="/" className="landing-wordmark">SolveMath<span>.</span></Link><span>Lesson workspace</span><button type="button" onClick={toggleFullscreen} disabled={isEditing} className="studio-secondary-button"><Maximize2 size={14} aria-hidden="true" />Present</button></div>
         {/* PRESENTATION STAGE: Hard-locked to 16:9 aspect-video */}
-        <div
-          id="presentation-slide-stage"
+        <SlideStage
           className={cn(
-            "relative aspect-video w-full max-w-[calc((100dvh-48px)*16/9)] max-h-[calc(100dvh-48px)] flex flex-col justify-between p-4 sm:p-6 lg:p-7 rounded-2xl border shadow-2xl overflow-hidden transition-all duration-300",
+            "relative aspect-video w-full rounded-lg border overflow-hidden",
             activeTheme.slideBg,
             activeTheme.slideBorder
           )}
         >
           {/* Slide Header */}
-          <div className="flex items-center justify-between pb-3 border-b border-white/10 shrink-0">
+          <div className="relative z-20 flex items-center justify-between gap-2 pb-3 border-b border-white/10 shrink-0">
             <div className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-zinc-400 truncate max-w-[60%]">
               {currentSlide.subtitle ? (
                 <MathRenderer text={currentSlide.subtitle} inline />
@@ -559,6 +493,8 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
               <button
                 onClick={toggleFullscreen}
                 title="Fullscreen (F)"
+                aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                disabled={isEditing}
                 className="p-1 rounded text-zinc-400 hover:text-white transition-colors"
               >
                 {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
@@ -571,10 +507,10 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
             <AnimatePresence mode="wait">
               <motion.div
                 key={`${theme}-${currentSlideIndex}`}
-                initial={{ opacity: 0, y: 6 }}
+                initial={reduceMotion ? false : { opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.2 }}
+                exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -6 }}
+                transition={{ duration: reduceMotion ? 0 : 0.2 }}
                 className="w-full flex flex-col flex-1 justify-start h-full overflow-hidden min-h-0"
               >
                 <h1 className={cn(getTitleClass(textScale), "font-black tracking-tight mb-4 sm:mb-6 shrink-0", activeTheme.text)}>
@@ -584,9 +520,9 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
                 {/* Split view when graph slide */}
                 {isGraphSlide && activeGraphs.length > 0 ? (
                   isMultiGraph ? (
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch flex-1 min-h-0 overflow-hidden">
+                    <div className="grid grid-cols-12 gap-4 items-stretch flex-1 min-h-0 overflow-hidden">
                       {/* Left: Mathematical Explanation */}
-                      <div className={cn("lg:col-span-4 font-normal leading-relaxed overflow-y-auto max-h-full pr-2 flex flex-col justify-between", getSplitDualContentClass(textScale), activeTheme.subtext)}>
+                      <div className={cn("col-span-4 font-normal leading-relaxed overflow-y-auto max-h-full pr-2 flex flex-col justify-between", getSplitDualContentClass(textScale), activeTheme.subtext)}>
                         <div className="space-y-3">
                           <MathRenderer text={currentSlide.content} />
                         </div>
@@ -630,7 +566,7 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
                       </div>
 
                       {/* Right: Graph Canvas Panel (Dual side-by-side or single focused) */}
-                      <div className="lg:col-span-8 flex items-center justify-center h-full max-h-full overflow-hidden">
+                      <div className="col-span-8 flex items-center justify-center h-full max-h-full overflow-hidden">
                         {graphComparisonView === "dual" ? (
                           <div className="grid grid-cols-2 gap-3 w-full h-full items-center justify-center">
                             <MathGraph
@@ -698,7 +634,7 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
                       </div>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-center flex-1 min-h-0 overflow-hidden">
+                    <div className="grid grid-cols-2 gap-5 items-center flex-1 min-h-0 overflow-hidden">
                       <div className={cn("font-normal leading-relaxed overflow-y-auto max-h-full pr-2", getSplitSingleContentClass(textScale), activeTheme.subtext)}>
                         <MathRenderer text={currentSlide.content} />
                       </div>
@@ -741,235 +677,91 @@ export function SolutionDisplay({ solution, onReset }: SolutionDisplayProps) {
           </div>
 
           {/* Slide Footer: Presentation progress ticks */}
-          <div className="flex items-center gap-1.5 pt-3 border-t border-white/5">
+          <div className="relative z-20 flex items-center gap-1.5 pt-3 border-t border-white/5">
             {solution.slides.map((_, idx) => (
               <button
                 key={idx}
-                onClick={() => setCurrentSlideIndex(idx)}
+                onClick={() => selectSlide(idx)}
+                disabled={isEditing}
                 title={`Jump to slide ${idx + 1}`}
+                aria-label={`Jump to slide ${idx + 1}`}
                 className={cn(
                   "h-1.5 flex-1 rounded-full transition-all duration-300",
-                  idx === currentSlideIndex ? "bg-blue-500 shadow-sm" : "bg-white/10 hover:bg-white/20"
+                  idx === currentSlideIndex ? "bg-[#a2c5aa]" : "bg-zinc-500/25 hover:bg-zinc-500/40"
                 )}
               />
             ))}
           </div>
-        </div>
+          <SlideDrawing key={currentSlideIndex} strokes={currentSlide.drawings || []} enabled={isDrawing && !isEditing} tool={drawingTool} color={inkColor} width={brushWidth} onStroke={addStroke} />
+        </SlideStage>
+        {isFullscreen && showFullscreenTools && <div className="fullscreen-settings">
+          <div className="flex items-center justify-between px-2 pb-2"><span className="text-xs font-semibold">Brush & color</span><button type="button" aria-label="Close drawing settings" onClick={() => setShowFullscreenTools(false)} className="studio-quiet-button">Close</button></div>
+          <DrawingTools enabled={isDrawing} onEnabledChange={setIsDrawing} tool={drawingTool} onToolChange={setDrawingTool} color={inkColor} onColorChange={setInkColor} width={brushWidth} onWidthChange={setBrushWidth} canUndo={Boolean(currentSlide.drawings?.length)} onUndo={undoDrawing} onClear={() => addStroke({ tool: "clear", color: inkColor, width: brushWidth, points: [] })} />
+        </div>}
+        {isFullscreen && <div className="fullscreen-toolbar">
+          <button type="button" aria-pressed={isDrawing} onClick={() => setIsDrawing(!isDrawing)} className="studio-quiet-button">{isDrawing ? "Stop drawing" : "Draw"}</button>
+          <button type="button" aria-expanded={showFullscreenTools} onClick={() => { setIsDrawing(true); setShowFullscreenTools(!showFullscreenTools); }} className="studio-quiet-button">Brush & color</button>
+          <button type="button" onClick={undoDrawing} disabled={!currentSlide.drawings?.length} className="studio-quiet-button">Undo</button>
+          <button type="button" onClick={prevSlide} disabled={currentSlideIndex === 0 || isEditing} aria-label="Previous slide" className="drawing-icon-button"><ChevronLeft className="h-4 w-4" /></button>
+          <button type="button" onClick={nextSlide} disabled={currentSlideIndex === solution.slides.length - 1 || isEditing} aria-label="Next slide" className="drawing-icon-button"><ChevronRight className="h-4 w-4" /></button>
+        </div>}
       </div>
 
       {/* Resize Handle */}
       <div
         onMouseDown={startResizing}
         className={cn(
-          "hidden lg:block w-1.5 h-full cursor-col-resize hover:bg-blue-500 transition-colors z-30 bg-slate-800/40",
-          isResizing && "bg-blue-500 w-2"
+          "presenter-resize-handle hidden lg:block",
+          isResizing && "is-resizing"
         )}
       />
 
       {/* ========================================================================= */}
-      {/* RIGHT PANEL: Presenter Studio & Controls */}
-      {/* ========================================================================= */}
-      <div
-        className="flex flex-col border-l border-slate-800 bg-[#0f172a] shadow-2xl z-20 w-full lg:w-auto text-slate-100"
-        style={{
-          width: typeof window !== "undefined" && window.innerWidth >= 1024 ? `${sidebarWidth}px` : "100%",
-          minWidth: typeof window !== "undefined" && window.innerWidth >= 1024 ? "380px" : "auto",
-        }}
-      >
-        {/* Dashboard Header with Recorder and Reset */}
-        <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-blue-600 shadow-md text-white">
-              <Presentation className="h-4 w-4" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold tracking-tight text-white">Presenter Studio</h2>
-              <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                <Clock className="h-3 w-3 text-slate-500" />
-                <span className="font-mono">{formatTimer(timerSeconds)}</span>
-                <button
-                  onClick={() => setIsTimerRunning(!isTimerRunning)}
-                  className="hover:text-slate-200 underline text-[10px]"
-                >
-                  {isTimerRunning ? "Pause" : "Resume"}
-                </button>
-              </div>
-            </div>
-          </div>
+      {/* RIGHT PANEL: Presenter controls share the studio design system. */}
+      <aside className="presenter-sidebar" style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties} aria-label="Presenter controls">
+        <header className="presenter-header">
+          <div className="presenter-title"><Presentation size={19} strokeWidth={1.5} aria-hidden="true" /><div><h2>Presenter Studio</h2><div className="presenter-timer"><Clock size={12} aria-hidden="true" /><span>{formatTimer(timerSeconds)}</span><button type="button" onClick={() => setIsTimerRunning(!isTimerRunning)}>{isTimerRunning ? "Pause" : "Resume"}</button></div></div></div>
+          <button type="button" onClick={onReset} title="Return to lesson studio" aria-label="Return to lesson selector" className="drawing-icon-button"><RotateCcw size={16} /></button>
+        </header>
+        <div className="presenter-recording"><span>Lesson recording</span><ScreenRecorder /></div>
 
-          <div className="flex items-center gap-2">
-            <ScreenRecorder />
-            <button
-              onClick={onReset}
-              title="Return to Lesson Selector"
-              className="p-2 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
-            >
-              <RotateCcw className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
+        <div className="presenter-body">
+          <section className="presenter-section" aria-label="Slide editing">
+            <div className="presenter-section-heading"><h3>Your slide</h3><span>{String(currentSlideIndex + 1).padStart(2, "0")} of {String(solution.slides.length).padStart(2, "0")}</span></div>
+            {isEditing ? <SlideEditor key={currentSlideIndex} slide={currentSlide} onSave={slide => { updateSlide(slide); setIsEditing(false); }} onCancel={() => setIsEditing(false)} /> :
+              <button type="button" onClick={() => { setIsDrawing(false); setIsEditing(true); }} className="studio-secondary-button presenter-edit-button"><Pencil size={15} aria-hidden="true" />Edit slide</button>}
+            <DrawingTools enabled={isDrawing && !isEditing} onEnabledChange={enabled => { if (!isEditing) setIsDrawing(enabled); }} tool={drawingTool} onToolChange={setDrawingTool} color={inkColor} onColorChange={setInkColor} width={brushWidth} onWidthChange={setBrushWidth} canUndo={Boolean(currentSlide.drawings?.length) && !isEditing} onUndo={undoDrawing} onClear={() => addStroke({ tool: "clear", color: inkColor, width: brushWidth, points: [] })} />
+          </section>
 
-        {/* Scrollable Dashboard Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5">
-          {/* Lecture Theme Palette Selection */}
-          <section className="space-y-2">
-            <div className="flex items-center gap-2 text-slate-400">
-              <Palette className="h-3.5 w-3.5 text-blue-400" />
-              <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Lecture Theme</h3>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-              {(Object.keys(THEMES) as ThemeKey[]).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTheme(t)}
-                  className={cn(
-                    "flex items-center gap-2 p-2 rounded-xl border text-left transition-all",
-                    theme === t
-                      ? "border-blue-500 bg-blue-500/15 ring-1 ring-blue-500 text-white font-semibold"
-                      : "border-slate-800 bg-slate-900/60 hover:border-slate-700 text-slate-300"
-                  )}
-                >
-                  <div className={cn("h-3.5 w-3.5 rounded-full border border-white/20 shrink-0", THEMES[t].slideBg)} />
-                  <span className="text-xs truncate">{THEMES[t].name}</span>
-                </button>
-              ))}
+          <section className="presenter-section">
+            <div className="presenter-section-heading"><h3><Palette size={14} aria-hidden="true" />Slide appearance</h3></div>
+            <div className="presenter-themes">
+              {(Object.keys(THEMES) as ThemeKey[]).map(t => <button key={t} type="button" onClick={() => setTheme(t)} aria-pressed={theme === t} className="presenter-theme"><span className={cn("theme-swatch", THEMES[t].slideBg)} aria-hidden="true" /><span>{THEMES[t].name}</span></button>)}
             </div>
           </section>
 
-          {/* Slide Text Size Scale */}
-          <section className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-slate-400">
-                <Type className="h-3.5 w-3.5 text-blue-400" />
-                <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Slide Text Size</h3>
-              </div>
-              <span className="text-[11px] font-mono text-blue-400 font-semibold">
-                {TEXT_SCALE_OPTIONS[textScaleIndex]?.name}
-              </span>
-            </div>
-            <div className="grid grid-cols-4 gap-1.5 bg-slate-900/60 p-1 rounded-xl border border-slate-800">
-              {TEXT_SCALE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.id}
-                  onClick={() => setTextScaleDirectly(opt.id)}
-                  className={cn(
-                    "py-1.5 px-2 rounded-lg text-xs font-semibold transition-all text-center",
-                    textScale === opt.id
-                      ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 ring-1 ring-blue-400"
-                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
-                  )}
-                >
-                  {opt.label}
-                </button>
-              ))}
+          <section className="presenter-section">
+            <div className="presenter-section-heading"><h3><Type size={14} aria-hidden="true" />Text size</h3><span>{TEXT_SCALE_OPTIONS[textScaleIndex]?.name}</span></div>
+            <div className="presenter-text-sizes">
+              {TEXT_SCALE_OPTIONS.map(option => <button key={option.id} type="button" onClick={() => setTextScaleDirectly(option.id)} aria-pressed={textScale === option.id} title={option.name}>{option.label}</button>)}
             </div>
           </section>
 
-          {/* Teacher / Speaker Script Notes */}
-          <section className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-blue-400">
-                <Volume2 className="h-3.5 w-3.5" />
-                <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Spoken Lesson Script</h3>
-                {currentSlide.notes && (
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                    ~{Math.max(4, Math.round(currentSlide.notes.trim().split(/\s+/).length / 2.5))}s read
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={toggleSpeak}
-                  title={isSpeaking ? "Stop reading aloud" : "Read script aloud (Text-to-Speech)"}
-                  className={cn(
-                    "p-1.5 rounded-lg transition-colors flex items-center gap-1",
-                    isSpeaking
-                      ? "bg-blue-500/20 text-blue-400 border border-blue-500/30 animate-pulse"
-                      : "text-slate-400 hover:text-blue-400"
-                  )}
-                >
-                  {isSpeaking ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
-                </button>
-                <button
-                  onClick={copyNote}
-                  title="Copy script"
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-blue-400 transition-colors"
-                >
-                  {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-                </button>
-              </div>
-            </div>
-
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={`${theme}-${currentSlideIndex}`}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="text-sm sm:text-base lg:text-lg leading-relaxed text-slate-200 bg-slate-900/80 p-4 sm:p-5 rounded-xl border border-slate-800 font-normal select-text shadow-sm"
-              >
-                <MathRenderer text={currentSlide.notes} />
-              </motion.div>
-            </AnimatePresence>
+          <section className="presenter-section">
+            <div className="presenter-section-heading"><h3><Volume2 size={14} aria-hidden="true" />Speaker notes</h3><div className="flex items-center gap-1"><button type="button" onClick={toggleSpeak} aria-label={isSpeaking ? "Stop reading aloud" : "Read speaker notes aloud"} title={isSpeaking ? "Stop reading aloud" : "Read speaker notes aloud"} className="drawing-icon-button">{isSpeaking ? <VolumeX size={15} /> : <Volume2 size={15} />}</button><button type="button" onClick={copyNote} aria-label={copied ? "Notes copied" : "Copy speaker notes"} title="Copy speaker notes" className="drawing-icon-button">{copied ? <Check size={15} /> : <Copy size={15} />}</button></div></div>
+            <div className="presenter-notes"><MathRenderer text={currentSlide.notes || "Add your own speaker notes with Edit slide."} /></div>
           </section>
 
-          {/* Slide Deck Navigator */}
-          <section className="space-y-2">
-            <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Slide Navigator</h3>
-            <div className="space-y-1">
-              {solution.slides.map((s, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setCurrentSlideIndex(idx)}
-                  className={cn(
-                    "w-full flex items-center justify-between p-2.5 rounded-xl border text-left text-xs transition-all gap-2",
-                    idx === currentSlideIndex
-                      ? "border-blue-500/60 bg-blue-500/15 text-white font-semibold shadow-sm"
-                      : "border-slate-800/60 bg-slate-900/40 text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
-                  )}
-                >
-                  <div className="flex items-center gap-2 truncate min-w-0">
-                    <span className="text-[11px] font-mono text-slate-400 font-semibold shrink-0">
-                      {String(idx + 1).padStart(2, "0")}
-                    </span>
-                    <span className="truncate text-xs font-medium text-slate-200">
-                      {s.title}
-                    </span>
-                  </div>
-                  <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-400 font-mono shrink-0">
-                    {s.type === "intro" ? "Problem" : s.type === "solution" ? "Solution" : s.type === "graph" || s.type === "evidence" ? "Evidence" : "Conclusion"}
-                  </span>
-                </button>
-              ))}
+          <section className="presenter-section">
+            <div className="presenter-section-heading"><h3>Lesson slides</h3><span>{solution.slides.length} slides</span></div>
+            <div className="presenter-deck">
+              {solution.slides.map((slide, index) => <button key={index} type="button" onClick={() => selectSlide(index)} disabled={isEditing} aria-current={index === currentSlideIndex ? "step" : undefined} className="presenter-slide-link"><span className="presenter-slide-number">{String(index + 1).padStart(2, "0")}</span><span className="presenter-slide-name">{slide.title}</span><span className="presenter-slide-type">{slide.type === "intro" ? "Problem" : slide.type === "graph" || slide.type === "evidence" ? "Graph" : slide.type === "conclusion" || slide.type === "summary" ? "Recap" : "Solution"}</span></button>)}
             </div>
           </section>
         </div>
 
-        {/* Navigation Footer */}
-        <div className="p-4 sm:p-5 border-t border-slate-800 bg-slate-900/40 flex flex-col gap-2.5">
-          <div className="flex items-center gap-2.5">
-            <button
-              onClick={prevSlide}
-              disabled={currentSlideIndex === 0}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 font-semibold text-xs transition-all hover:bg-slate-700 disabled:opacity-30 active:scale-95 shadow-sm"
-            >
-              <ChevronLeft className="h-4 w-4" />
-              <span>Previous</span>
-            </button>
-            <button
-              onClick={nextSlide}
-              disabled={currentSlideIndex === solution.slides.length - 1}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-blue-600 text-white font-semibold text-xs shadow-md transition-all hover:bg-blue-500 disabled:opacity-30 active:scale-95"
-            >
-              <span>Next</span>
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-          <p className="text-[10px] text-center text-slate-500">
-            Keyboard Shortcuts: <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300">Space</kbd> / <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300">→</kbd> Next • <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300">F</kbd> Fullscreen • <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300">+/-</kbd> Text Size
-          </p>
-        </div>
-      </div>
+        <footer className="presenter-footer"><div className="presenter-navigation"><button type="button" onClick={prevSlide} disabled={currentSlideIndex === 0 || isEditing} className="studio-secondary-button"><ChevronLeft size={16} aria-hidden="true" />Previous</button><button type="button" onClick={nextSlide} disabled={currentSlideIndex === solution.slides.length - 1 || isEditing} className="studio-button">Next<ChevronRight size={16} aria-hidden="true" /></button></div><p><kbd>←</kbd> <kbd>→</kbd> Slides <span>·</span> <kbd>F</kbd> Fullscreen <span>·</span> <kbd>Ctrl Z</kbd> Undo</p></footer>
+      </aside>
     </div>
   );
 }
