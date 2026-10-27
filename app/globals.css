@@ -1,20 +1,21 @@
 @import "tailwindcss";
 @import "katex/dist/katex.min.css";
+@import "./studio.css";
 
 :root {
-  --background: #fcfcfd;
-  --foreground: #0f172a;
+  --background: #f9faf8;
+  --foreground: #1d2926;
   --card: #ffffff;
-  --card-foreground: #0f172a;
-  --primary: #2563eb; /* professional royal blue */
+  --card-foreground: #1d2926;
+  --primary: #296b4d;
   --primary-foreground: #ffffff;
-  --secondary: #f1f5f9; /* slate-100 */
-  --secondary-foreground: #1e293b;
-  --muted: #f8fafc;
-  --muted-foreground: #64748b;
-  --accent: #f1f5f9;
-  --accent-foreground: #0f172a;
-  --border: #e2e8f0;
+  --secondary: #edf1eb;
+  --secondary-foreground: #344b3e;
+  --muted: #f3f5f0;
+  --muted-foreground: #59665f;
+  --accent: #e6eee3;
+  --accent-foreground: #296b4d;
+  --border: #dde3dc;
 }
 
 @theme inline {
@@ -34,30 +35,186 @@
   --radius-3xl: 1.5rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0b0f17;
-    --foreground: #f8fafc;
-    --card: #111726;
-    --card-foreground: #f8fafc;
-    --primary: #3b82f6;
-    --primary-foreground: #ffffff;
-    --secondary: #1e293b;
-    --secondary-foreground: #f8fafc;
-    --muted: #1e293b;
-    --muted-foreground: #94a3b8;
-    --accent: #1e293b;
-    --accent-foreground: #f8fafc;
-    --border: #1e293b;
-  }
-}
-
 body {
+  overflow-x: clip;
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Landing page: a quiet, editorial surface around the actual lesson. */
+.landing, .landing-nav {
+  --landing-paper: #f9faf8;
+  --landing-ink: #1d2926;
+  --landing-secondary: #59665f;
+  --landing-line: #dde3dc;
+  --landing-accent: #296b4d;
+  --landing-graph: #add0b6;
+  background: var(--landing-paper);
+  color: var(--landing-ink);
+}
+.landing { min-height: 100vh; }
+.landing-container { width: min(100% - 96px, 1184px); margin-inline: auto; }
+.landing :where(a, button) { -webkit-tap-highlight-color: transparent; }
+:where(a, button, input, textarea, select):focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
+.landing :where(a, button):focus-visible, .landing-nav a:focus-visible { outline-color: var(--landing-accent); }
+.landing-nav { position: absolute; inset: 0 0 auto; z-index: 100; }
+.landing-nav nav { display: flex; min-height: 96px; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 24px; border-bottom: 1px solid var(--landing-line); }
+.landing-wordmark { font-size: 23px; font-weight: 700; letter-spacing: -1.1px; text-decoration: none; }
+.landing-wordmark span { color: var(--landing-accent); }
+.landing-nav-links { display: flex; flex-wrap: wrap; gap: 32px; font-size: 13px; color: var(--landing-secondary); }
+.landing-nav a { transition: color 150ms, background 150ms; }
+.landing-nav-links a:hover { color: var(--landing-ink); }
+.landing-nav-cta { display: inline-flex; gap: 16px; align-items: center; border: 1px solid #c9d2c9; padding: 10px 16px; border-radius: 5px; font-size: 13px; font-weight: 600; }
+.landing-nav-cta:hover { background: #eef2ec; }
+.landing-hero { display: grid; grid-template-columns: 0.88fr 1.12fr; align-items: center; gap: 64px; padding-block: 184px 104px; }
+.landing-hero > * { min-width: 0; }
+.landing-eyebrow { margin-bottom: 24px; color: var(--landing-accent); font-size: 13px; font-weight: 500; }
+.landing h1 { font-size: clamp(44px, 4.55vw, 66px); font-weight: 550; line-height: 1.06; letter-spacing: -0.065em; }
+.landing-lead { margin-top: 28px; max-width: 390px; color: var(--landing-secondary); font-size: 16px; line-height: 1.8; }
+.landing-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; margin-top: 32px; }
+.landing-button { display: inline-flex; min-height: 46px; align-items: center; justify-content: center; gap: 24px; border: 1px solid var(--landing-ink); border-radius: 5px; background: var(--landing-ink); padding: 12px 20px; color: white; font-size: 13px; font-weight: 500; transition: background 150ms; }
+.landing-button:hover { background: var(--landing-accent); border-color: var(--landing-accent); }
+.landing-text-link { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; text-decoration: none; }
+.landing-text-link:hover { color: var(--landing-accent); }
+.landing-small-note { display: flex; align-items: flex-start; gap: 7px; margin-top: 20px; font-size: 10px; line-height: 1.6; color: var(--landing-secondary); }
+.landing-small-note svg { flex-shrink: 0; margin-top: 1px; color: var(--landing-accent); }
+.lesson-preview { border: 1px solid var(--landing-line); border-radius: 8px; background: #fff; box-shadow: 0 16px 40px -24px #25352b35; overflow: hidden; }
+.lesson-preview-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; font-size: 11px; font-weight: 500; }
+.lesson-preview-top > span, .lesson-preview-top a { display: inline-flex; align-items: center; gap: 8px; }
+.lesson-preview-top a { color: var(--landing-secondary); }
+.preview-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--landing-accent); }
+.lesson-preview-slide { margin: 0 12px; min-height: 310px; border-radius: 3px; background: #1c2926; padding: 24px; color: #f0f3ed; }
+.preview-slide-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; color: #b1bcb6; font-size: 9px; }
+.preview-slide-meta span:last-child { font-variant-numeric: tabular-nums; }
+.lesson-preview-slide h2 { margin-top: 28px; font-size: 23px; line-height: 1.25; font-weight: 500; letter-spacing: -0.7px; }
+.preview-slide-content { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 16px; min-height: 176px; }
+.preview-slide-content > * { min-width: 0; }
+.preview-explanation > p { max-width: 190px; font-size: 12px; line-height: 1.8; color: #c3cdc6; }
+.preview-equation { margin-top: 20px; color: #e5efe4; font-size: clamp(10px, 1.1vw, 14px); }
+.preview-explanation .preview-solution-note { margin-top: 12px; color: var(--landing-graph); font-size: 10px; }
+.preview-graph { width: 100%; max-height: 185px; color: #c7d1ca; }
+.graph-labels { font-size: 10px; font-family: var(--font-geist-sans), sans-serif; }
+.preview-slide-bottom { display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid #3d4a42; padding-top: 12px; color: #a8b6ad; font-size: 8px; }
+.preview-controls { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; }
+.preview-pagination, .preview-arrows { display: flex; gap: 6px; }
+.preview-pagination button { display: flex; height: 32px; width: 44px; align-items: center; justify-content: center; border-radius: 3px; background: #f7f8f5; color: var(--landing-secondary); font-size: 10px; border: 1px solid var(--landing-line); transition: background 150ms; }
+.preview-pagination button[aria-pressed="true"] { background: #e8eee5; border-color: #95ab93; color: var(--landing-ink); }
+.preview-pagination button:hover, .preview-arrows button:hover { background: #e8eee5; }
+.preview-arrows button { display: grid; height: 32px; width: 28px; place-content: center; color: var(--landing-secondary); border-radius: 3px; }
+.preview-caption { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; border-top: 1px solid var(--landing-line); padding: 14px 20px; font-size: 10px; color: var(--landing-secondary); }
+.preview-caption > span, .preview-caption a { display: inline-flex; align-items: center; gap: 7px; }
+.preview-caption a { color: var(--landing-accent); font-weight: 600; }
+.landing-workflow { display: grid; grid-template-columns: 0.88fr 1.12fr; gap: 64px; border-top: 1px solid var(--landing-line); padding-block: 64px 80px; scroll-margin-top: 24px; }
+.landing h2 { letter-spacing: -0.045em; }
+.landing-section-intro h2 { font-size: 28px; line-height: 1.25; font-weight: 500; }
+.landing-section-intro > p { margin-top: 16px; font-size: 13px; color: var(--landing-secondary); }
+.landing-steps { display: grid; gap: 28px; }
+.landing-steps li { display: flex; align-items: flex-start; gap: 24px; }
+.landing-step-number { margin-top: 2px; color: var(--landing-accent); font-size: 11px; font-variant-numeric: tabular-nums; }
+.landing-steps h3, .landing-tool-list h3 { font-size: 14px; font-weight: 600; letter-spacing: -0.2px; }
+.landing-steps p { max-width: 400px; margin-top: 6px; font-size: 13px; line-height: 1.7; color: var(--landing-secondary); }
+.landing-tools { display: grid; grid-template-columns: 0.88fr 1.12fr; gap: 64px; border-top: 1px solid var(--landing-line); padding-block: 80px; }
+.landing-tools-heading h2 { font-size: 36px; font-weight: 500; line-height: 1.2; }
+.landing-tools-heading .landing-eyebrow { margin-bottom: 20px; }
+.landing-tools-heading .landing-text-link { margin-top: 28px; }
+.landing-tool-list { display: grid; gap: 32px; }
+.landing-tool-list article { display: flex; gap: 20px; }
+.landing-tool-list article > svg { flex-shrink: 0; margin-top: 1px; color: var(--landing-accent); }
+.landing-tool-list p { margin-top: 8px; color: var(--landing-secondary); font-size: 13px; line-height: 1.8; }
+.landing-tool-list p a { display: inline-flex; align-items: center; gap: 3px; color: var(--landing-accent); text-decoration: underline; text-underline-offset: 3px; }
+.landing-bottom-cta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 32px; border-top: 1px solid var(--landing-line); padding-block: 64px; }
+.landing-bottom-cta h2 { font-size: 32px; font-weight: 500; line-height: 1.2; }
+.landing-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 24px; border-top: 1px solid var(--landing-line); padding-block: 28px; }
+.landing-footer .landing-wordmark { font-size: 18px; }
+.landing-footer p, .landing-footer > a:last-child { color: var(--landing-secondary); font-size: 11px; }
+.landing-footer > a:last-child { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Presenter controls and mobile stage layout. */
+.presenter-sidebar { width: var(--sidebar-width); min-width: 340px; max-width: 65%; }
+.presentation-slide-inner { position: absolute; top: 0; left: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 48px; transform-origin: top left; }
+.presentation-slide-inner > :first-child { padding-bottom: 24px; }
+.presentation-slide-inner > :first-child > :first-child { font-size: 18px; }
+.presentation-slide-inner > :first-child > :last-child { gap: 20px; }
+.presentation-slide-inner > :first-child > :last-child > span { font-size: 18px; white-space: nowrap; }
+.presentation-slide-inner > :first-child button { font-size: 18px; }
+.presentation-slide-inner > :first-child svg { width: 24px; height: 24px; }
+.presentation-slide-inner h1 { margin-bottom: 32px; line-height: 1.12; }
+.presentation-slide-inner h1 + div { padding-block: 16px; }
+.presentation-slide-inner div.math-renderer { gap: 16px; }
+.presentation-slide-inner .math-graph { padding: 20px; }
+.presentation-slide-inner .math-graph[data-compact="true"] { padding: 12px; }
+.presentation-slide-inner .math-graph :is(.text-xs, .text-sm) { font-size: 14px; }
+.presentation-slide-inner .math-graph .text-\[10px\] { font-size: 12px; }
+.presentation-slide-inner .katex-display { margin-block: 0.45em; }
+.presentation-slide-inner :is(strong, em) { color: inherit; }
+.presentation-slide-inner > :last-child { border-radius: 0; }
+@media (max-width: 1100px) {
+  .landing-container { width: calc(100% - 64px); }
+  .landing-hero, .landing-workflow, .landing-tools { gap: 40px; }
+  .landing-actions { gap: 16px; }
+  .lesson-preview-slide { padding: 20px; }
+  .preview-slide-content { gap: 8px; }
+}
+@media (max-width: 1023px) {
+  .presenter-sidebar { width: 100%; min-width: 0; max-width: none; height: 53%; }
+  .presentation-area { flex: 1 1 47%; }
+  #presentation-slide-stage { max-width: min(100%, calc((47dvh - 48px) * 16 / 9)); }
+}
+@media (max-width: 820px) {
+  .landing-hero { grid-template-columns: 1fr; gap: 48px; padding-block: 152px 64px; }
+  .landing-hero-copy { max-width: 540px; }
+  .landing h1 { font-size: 60px; }
+  .landing-lead { max-width: 450px; }
+  .lesson-preview { width: 100%; max-width: 620px; }
+  .lesson-preview-slide { padding: 28px; }
+  .lesson-preview-slide h2 { font-size: 28px; }
+  .preview-equation { font-size: 15px; }
+  .preview-slide-content { min-height: 210px; gap: 24px; }
+  .preview-explanation > p { font-size: 14px; }
+  .preview-graph { max-height: 210px; }
+  .landing-workflow, .landing-tools { grid-template-columns: 1fr; gap: 40px; padding-block: 48px; }
+  .landing-section-intro > p { margin-top: 8px; }
+  .landing-steps p { max-width: 560px; }
+  .landing-tool-list { max-width: 620px; }
+}
+@media (max-width: 540px) {
+  .landing-container { width: calc(100% - 40px); }
+  .landing-nav nav { min-height: 80px; gap: 12px; }
+  .landing-wordmark { font-size: 21px; }
+  .landing-nav-links { display: none; }
+  .landing-nav-cta { gap: 8px; padding: 9px 12px; font-size: 12px; }
+  .landing-hero { gap: 40px; padding-block: 128px 48px; }
+  .landing h1 { font-size: clamp(40px, 10.8vw, 56px); }
+  .landing-eyebrow { margin-bottom: 20px; font-size: 12px; }
+  .landing-lead { margin-top: 24px; font-size: 15px; line-height: 1.75; }
+  .landing-actions { margin-top: 24px; gap: 20px; }
+  .landing-button { padding-inline: 16px; gap: 16px; font-size: 12px; }
+  .landing-text-link { gap: 5px; font-size: 12px; }
+  .landing-small-note { font-size: 9px; }
+  .lesson-preview-top { padding: 13px 14px; font-size: 10px; }
+  .lesson-preview-slide { min-height: 280px; margin-inline: 8px; padding: 18px; }
+  .preview-slide-meta { font-size: 8px; }
+  .lesson-preview-slide h2 { margin-top: 24px; font-size: 20px; }
+  .preview-slide-content { grid-template-columns: 1fr 0.9fr; min-height: 156px; gap: 12px; }
+  .preview-explanation > p { font-size: 10px; }
+  .preview-equation { margin-top: 16px; font-size: 10px; }
+  .preview-slide-bottom { font-size: 7px; }
+  .preview-caption { padding: 12px 14px; font-size: 9px; gap: 8px; }
+  .preview-caption > span { gap: 5px; }
+  .preview-controls { padding-inline: 14px; }
+  .landing-section-intro h2 { font-size: 26px; }
+  .landing-steps li { gap: 16px; }
+  .landing-tools-heading h2 { font-size: 32px; }
+  .landing-bottom-cta { padding-block: 40px; align-items: flex-start; flex-direction: column; gap: 24px; }
+  .landing-bottom-cta h2 { font-size: 28px; }
+  .landing-footer { gap: 16px; }
+  .landing-footer p { width: 100%; order: 3; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }
 
 /* KaTeX custom sizing adjustments for crisp lecture presentation */
