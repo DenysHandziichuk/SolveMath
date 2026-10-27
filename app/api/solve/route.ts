@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { groq } from "@/lib/groq";
-import { requestSolutionCompletion } from "@/lib/solution-completion";
+import { requestSolutionCompletion, SolutionRateLimitError } from "@/lib/solution-completion";
 import { getQuestionPartLabels, isGeometryOrGraphingTask } from "@/lib/json-extractor";
 
 export const dynamic = "force-dynamic";
@@ -133,7 +133,14 @@ STRICT CONSTRAINTS:
     );
     return NextResponse.json(data);
   } catch (error) {
-    console.warn("Groq presentation generation failed:", error);
+    // Provider errors can include account details and rejected generations.
+    console.warn("Groq presentation generation failed:", error instanceof Error ? error.name : "Unknown error");
+    if (error instanceof SolutionRateLimitError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status, headers: { "Retry-After": String(error.retryAfter) } }
+      );
+    }
     return NextResponse.json(
       { error: "A complete solution could not be generated right now. Please try again shortly." },
       { status: 503, headers: { "Retry-After": "5" } }
