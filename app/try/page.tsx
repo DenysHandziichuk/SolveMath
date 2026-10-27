@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { UploadArea } from "@/components/UploadArea";
 import { QuestionSelector } from "@/components/QuestionSelector";
-import { Loader2, AlertCircle } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { Loader2, AlertCircle, ArrowLeft, ArrowUpRight, Check, X } from "lucide-react";
 
 interface Question {
   id: string;
@@ -20,154 +20,83 @@ export default function TryPage() {
   const [isSolving, setIsSolving] = useState(false);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const activeStep = isSolving ? 2 : questions.length ? 1 : 0;
 
   const handleImageSelect = async (base64: string) => {
     setIsProcessing(true);
     setError(null);
-
     try {
       const response = await fetch("/api/process", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image: base64 }),
       });
-
       const data = await response.json();
-      if (data.error) throw new Error(data.error);
-
-      setQuestions(data.questions || []);
-      setIsProcessing(false);
+      if (!response.ok || data.error) throw new Error(data.error || "We couldn’t read this image. Please try again.");
+      const detected = data.questions || [];
+      setQuestions(detected);
+      if (!detected.length) setError("No math problems were found. Try a clearer image with the full question in view.");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to process image";
-      setError(message);
-      setIsProcessing(false);
-    }
+      setError(err instanceof Error ? err.message : "We couldn’t read this image. Please try again.");
+    } finally { setIsProcessing(false); }
   };
 
   const handleQuestionSelect = async (question: Question) => {
     setIsSolving(true);
     setError(null);
-
     try {
       const response = await fetch("/api/solve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question }),
       });
-
       const data = await response.json();
-      if (data.error) throw new Error(data.error);
-
+      if (!response.ok || data.error) throw new Error(data.error || "We couldn’t create your lesson. Please try again.");
       sessionStorage.setItem("math_solution", JSON.stringify(data));
       router.push("/presentation");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to solve question";
-      setError(message);
+      setError(err instanceof Error ? err.message : "We couldn’t create your lesson. Please try again.");
       setIsSolving(false);
     }
   };
 
-  const handleQuestionUpdate = (index: number, text: string) => {
-    setQuestions((current) => current.map((question, questionIndex) =>
-      questionIndex === index ? { ...question, text } : question
-    ));
-    setError(null);
-  };
-
   return (
-    <div className="min-h-screen bg-[#070b12] text-slate-100 pt-32 pb-20 px-4 sm:px-6">
-      {/* Background ambient lighting */}
-      <div className="fixed inset-0 pointer-events-none z-0">
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[300px] bg-blue-600/10 blur-[120px] rounded-full" />
-      </div>
+    <main className="studio-shell">
+      <div className="studio-container">
+        <div className="studio-page-heading">
+          <p className="studio-eyebrow">Lesson studio</p>
+          <h1>Start with a problem.</h1>
+          <p>A screenshot, a clear explanation, a lesson that’s yours.<br className="studio-desktop-break" /> Let’s work through it, one step at a time.</p>
+        </div>
 
-      <div className="relative z-10 mx-auto max-w-3xl">
-        {/* Studio Header */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-          className="text-center mb-10 space-y-2.5"
-        >
-          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 text-xs font-semibold uppercase tracking-wider mb-2 backdrop-blur-md">
-            <span>Lesson Presentation Studio</span>
+        <ol className="studio-steps" aria-label="Create a lesson">
+          {["Upload a problem", "Review the question", "Create your lesson"].map((step, index) => <li key={step} aria-current={activeStep === index ? "step" : undefined} data-complete={index < activeStep}><span className="studio-step-icon">{index < activeStep ? <Check size={12} aria-hidden="true" /> : index + 1}</span><span>{step}</span></li>)}
+        </ol>
+
+        <div className="studio-grid">
+          <div className="studio-main">
+            {isSolving ? (
+              <section className="studio-loading" role="status" aria-live="polite"><Loader2 className="animate-spin" size={28} strokeWidth={1.5} aria-hidden="true" /><h2>A little preparation. A clearer lesson.</h2><p>Working through the solution and putting your slides,<br className="studio-desktop-break" /> graphs, and speaker notes together.</p></section>
+            ) : questions.length ? (
+              <>
+                <QuestionSelector questions={questions} onSelect={handleQuestionSelect} onUpdate={(index, text) => { setQuestions(current => current.map((question, i) => i === index ? { ...question, text } : question)); setError(null); }} isSolving={isSolving} />
+                <button type="button" onClick={() => { setQuestions([]); setError(null); }} className="studio-back-link"><ArrowLeft size={14} aria-hidden="true" />Upload another screenshot</button>
+              </>
+            ) : <UploadArea onImageSelect={handleImageSelect} isProcessing={isProcessing} />}
+
+            {error && <div className="studio-alert" role="alert"><AlertCircle size={18} aria-hidden="true" /><p>{error}</p><button type="button" aria-label="Dismiss error" onClick={() => setError(null)}><X size={16} /></button></div>}
           </div>
-          <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-white">
-            Screenshot to 1080p Slides
-          </h1>
-          <p className="text-sm sm:text-base text-slate-400 max-w-xl mx-auto font-normal">
-            Drop or paste any math problem screenshot to generate structured presentation slides.
-          </p>
-        </motion.div>
 
-        <AnimatePresence mode="wait">
-          {isSolving ? (
-            <motion.div
-              key="solving"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.3 }}
-              className="flex flex-col items-center justify-center py-20 gap-5 text-center"
-            >
-              <div className="relative flex h-16 w-16 items-center justify-center">
-                <div className="absolute inset-0 rounded-full border-2 border-blue-500/20 animate-ping opacity-30" />
-                <div className="absolute inset-0 rounded-full border-2 border-t-blue-500 border-r-transparent border-b-blue-500/40 border-l-transparent animate-spin" />
-                <Loader2 className="h-6 w-6 animate-spin text-blue-400" />
-              </div>
-              <div className="space-y-1.5">
-                <h3 className="text-lg font-bold text-white">Preparing Presentation</h3>
-                <p className="text-xs text-slate-400 max-w-sm">
-                  Formatting step-by-step proofs, coordinate graphs, and speaker notes...
-                </p>
-              </div>
-            </motion.div>
-          ) : questions.length > 0 ? (
-            <motion.div key="questions" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
-              <QuestionSelector
-                questions={questions}
-                onSelect={handleQuestionSelect}
-                onUpdate={handleQuestionUpdate}
-                isSolving={isSolving}
-              />
-              <button
-                onClick={() => setQuestions([])}
-                className="mt-6 mx-auto block text-xs font-semibold text-slate-400 hover:text-white underline underline-offset-4 transition-colors"
-              >
-                ← Upload another screenshot
-              </button>
-            </motion.div>
-          ) : (
-            <motion.div
-              key="upload"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.35 }}
-              className="space-y-6"
-            >
-              <UploadArea onImageSelect={handleImageSelect} isProcessing={isProcessing} />
-            </motion.div>
-          )}
-        </AnimatePresence>
+          <aside className="studio-guidance" aria-labelledby="guidance-title">
+            <h2 id="guidance-title">A clearer start.</h2>
+            <p>A few small things make a better lesson.</p>
+            <ol><li>Keep the full question and all its parts in view.</li><li>Use a sharp image with easy-to-read text.</li><li>Review the detected question before creating your slides.</li></ol>
+            <div className="studio-sample-link"><p>Just looking around?</p><Link href="/presentation?demo=1">Explore a sample lesson<ArrowUpRight size={14} aria-hidden="true" /></Link></div>
+          </aside>
+        </div>
 
-        {error && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mx-auto mt-6 flex max-w-md items-center gap-3 rounded-xl bg-red-500/10 border border-red-500/20 p-4 text-xs text-red-400 shadow-lg"
-          >
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <p className="flex-1 font-medium">{error}</p>
-            <button
-              onClick={() => setError(null)}
-              className="text-[11px] font-bold uppercase tracking-wider text-slate-400 hover:text-white"
-            >
-              Dismiss
-            </button>
-          </motion.div>
-        )}
+        <footer className="studio-footer"><span>Your explanation. Your way.</span><span className="studio-ready" role="status"><span aria-hidden="true" />{isSolving ? "Creating your lesson" : isProcessing ? "Reading your image" : "Ready when you are"}</span></footer>
       </div>
-    </div>
+    </main>
   );
 }
-
