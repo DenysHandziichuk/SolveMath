@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { X, Loader2, Image as ImageIcon } from "lucide-react";
+import { X, Loader2, Image as ImageIcon, ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface UploadAreaProps {
@@ -12,115 +12,58 @@ interface UploadAreaProps {
 export function UploadArea({ onImageSelect, isProcessing }: UploadAreaProps) {
   const [preview, setPreview] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [fileError, setFileError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = useCallback((file: File) => {
-    if (!file.type.startsWith("image/")) return;
-
+    if (isProcessing) return;
+    if (!file.type.startsWith("image/")) { setFileError("Please choose an image of your math problem."); return; }
+    setFileError("");
     const reader = new FileReader();
-    reader.onloadend = () => {
+    reader.onload = () => {
       const base64 = reader.result as string;
       setPreview(base64);
       onImageSelect(base64);
     };
+    reader.onerror = () => setFileError("This image couldn’t be opened. Please choose another image.");
     reader.readAsDataURL(file);
-  }, [onImageSelect]);
+  }, [onImageSelect, isProcessing]);
 
-  // Global clipboard paste listener (Ctrl+V anywhere on the page)
   useEffect(() => {
-    const handlePaste = (e: ClipboardEvent) => {
+    const handlePaste = (event: ClipboardEvent) => {
       if (isProcessing) return;
-      const items = e.clipboardData?.items;
-      if (!items) return;
-
-      for (let i = 0; i < items.length; i++) {
-        if (items[i].type.startsWith("image/")) {
-          const file = items[i].getAsFile();
-          if (file) {
-            e.preventDefault();
-            handleFile(file);
-            break;
-          }
-        }
+      for (const item of Array.from(event.clipboardData?.items || [])) {
+        if (!item.type.startsWith("image/")) continue;
+        const file = item.getAsFile();
+        if (file) { event.preventDefault(); handleFile(file); break; }
       }
     };
-
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
   }, [handleFile, isProcessing]);
 
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    if (e.dataTransfer.files?.[0]) {
-      handleFile(e.dataTransfer.files[0]);
-    }
-  };
-
   return (
-    <div className="w-full max-w-2xl mx-auto px-2">
-      <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          setIsDragging(true);
-        }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={onDrop}
-        className={cn(
-          "relative flex aspect-video w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed transition-all duration-200",
-          isDragging
-            ? "border-blue-500 bg-blue-500/10 shadow-2xl shadow-blue-500/10 scale-[1.01]"
-            : "border-slate-800/90 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-900/60 shadow-lg",
-          preview && "border-solid border-slate-800"
-        )}
-      >
-        {preview ? (
-          <div className="relative h-full w-full overflow-hidden rounded-2xl">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={preview} alt="Problem Preview" className="h-full w-full object-contain bg-slate-950/80" />
-            <div className="absolute inset-0 bg-slate-950/50 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-              <button
-                onClick={() => setPreview(null)}
-                className="rounded-xl bg-slate-800 border border-slate-700 p-2 text-white shadow-lg transition-transform hover:scale-105"
-                title="Remove image"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            {isProcessing && (
-              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-sm">
-                <Loader2 className="h-8 w-8 animate-spin text-blue-400" />
-                <p className="mt-3 text-xs font-semibold text-slate-200">Reading Math Problems...</p>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div
-            onClick={() => fileInputRef.current?.click()}
-            className="flex h-full w-full cursor-pointer flex-col items-center justify-center gap-3 text-center p-8 select-none"
-          >
-            <div className="rounded-xl bg-slate-800/80 border border-slate-700/60 p-3.5 text-blue-400 shadow-inner">
-              <ImageIcon className="h-6 w-6" />
-            </div>
-            <div>
-              <p className="text-base font-semibold text-slate-200">
-                Drop assignment or exam screenshot here
-              </p>
-              <p className="mt-1 text-xs text-slate-400">
-                or paste with <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">Ctrl+V</kbd> • click to browse
-              </p>
-            </div>
-          </div>
-        )}
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-          accept="image/*"
-          className="hidden"
-        />
+    <div className="upload-area">
+      <div className={cn("upload-dropzone", isDragging && "is-dragging", preview && "has-preview")} aria-busy={isProcessing}
+        onDragOver={event => { event.preventDefault(); if (!isProcessing) setIsDragging(true); }}
+        onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setIsDragging(false); }}
+        onDrop={event => { event.preventDefault(); setIsDragging(false); if (!isProcessing && event.dataTransfer.files[0]) handleFile(event.dataTransfer.files[0]); }}>
+        {preview ? <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={preview} alt="Uploaded math problem" className="upload-preview" />
+          {!isProcessing && <button type="button" aria-label="Remove image" onClick={() => { setPreview(null); setFileError(""); if (fileInputRef.current) fileInputRef.current.value = ""; }} className="upload-remove"><X size={17} /></button>}
+          {isProcessing && <div className="upload-processing" role="status"><Loader2 size={28} className="animate-spin" strokeWidth={1.5} aria-hidden="true" /><p>Reading your problem…</p><span>Finding the questions, equations, and details.</span></div>}
+        </> : <button type="button" className="upload-trigger" onClick={() => fileInputRef.current?.click()} disabled={isProcessing}>
+          <span className="upload-symbol"><ImageIcon size={28} strokeWidth={1.25} aria-hidden="true" /></span>
+          <span className="upload-title">A problem worth explaining.</span>
+          <span className="upload-description">Drop your screenshot here, or browse your files.</span>
+          <span className="studio-button">Choose an image<ArrowUpRight size={15} aria-hidden="true" /></span>
+          <span className="upload-paste">You can also paste an image with <kbd>Ctrl</kbd> + <kbd>V</kbd> / <kbd>⌘</kbd> + <kbd>V</kbd></span>
+        </button>}
+        <input type="file" ref={fileInputRef} aria-label="Upload problem image" accept="image/*" disabled={isProcessing} className="hidden" onChange={event => { if (event.target.files?.[0]) handleFile(event.target.files[0]); event.target.value = ""; }} />
       </div>
+      <div className="upload-footnote"><span>Screenshots, photos, and scanned questions.</span><span>Image files</span></div>
+      {fileError && <p className="studio-field-error" role="alert">{fileError}</p>}
     </div>
   );
 }
-
