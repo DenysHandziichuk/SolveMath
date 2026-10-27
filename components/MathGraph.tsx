@@ -159,9 +159,10 @@ export function MathGraph({
   return (
     <div
       className={cn(
-        "relative flex flex-col items-center justify-center bg-slate-950/80 rounded-2xl border border-slate-800/80 w-full shadow-xl backdrop-blur-md group overflow-hidden transition-all",
+        "math-graph relative flex flex-col items-center justify-center bg-slate-950/80 rounded-2xl border border-slate-800/80 w-full shadow-xl backdrop-blur-md group overflow-hidden transition-all",
         compact ? "p-2 sm:p-3 max-w-full" : "p-3 sm:p-5 max-w-3xl"
       )}
+      data-compact={compact}
     >
       {/* Title Badge (e.g. for comparing graphs) */}
       {title && (
