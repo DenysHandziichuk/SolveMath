@@ -6,9 +6,7 @@ import {
   Download,
   Mic,
   MicOff,
-  Video,
   RotateCcw,
-  Volume2,
   ShieldAlert,
   Check,
   X,
@@ -24,7 +22,13 @@ export function ScreenRecorder() {
   // Permission & Audio Monitoring States
   const [micPermission, setMicPermission] = useState<"granted" | "prompt" | "denied" | "unknown">("prompt");
   const [showPermissionModal, setShowPermissionModal] = useState(false);
+  const permissionDialogRef = useRef<HTMLDialogElement>(null);
   const [audioLevel, setAudioLevel] = useState(0); // Normalized 0 to 1 for live VU meter
+
+  useEffect(() => {
+    const dialog = permissionDialogRef.current;
+    if (showPermissionModal && dialog && !dialog.open) dialog.showModal();
+  }, [showPermissionModal]);
 
   // Resulting MP4 Blob reference (guaranteed genuine ISO-BMFF MP4)
   const mp4BlobRef = useRef<Blob | null>(null);
@@ -918,71 +922,71 @@ export function ScreenRecorder() {
     <>
       {/* Microphone Permission Instruction Modal */}
       {showPermissionModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="relative w-full max-w-md p-6 rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl space-y-4 text-slate-100">
+          <dialog ref={permissionDialogRef} aria-labelledby="mic-permission-title" onCancel={() => setShowPermissionModal(false)} className="recorder-permission-dialog">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
+                <div className="permission-icon">
                   <ShieldAlert className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">Microphone Access Required</h3>
-                  <p className="text-xs text-slate-400">Record your speech during the presentation</p>
+                  <h3 id="mic-permission-title">Microphone access</h3>
+                  <p className="studio-help">Add your voice to the lesson.</p>
                 </div>
               </div>
               <button
                 onClick={() => setShowPermissionModal(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                aria-label="Close microphone instructions"
+                className="drawing-icon-button"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700/60 text-xs text-slate-300 space-y-2.5 leading-relaxed">
-              <p className="font-semibold text-slate-200">
+            <div className="recorder-permission-help space-y-2.5">
+              <p className="font-medium">
                 Microphone permission is currently blocked in your browser settings.
               </p>
               <p>To grant audio recording permission:</p>
-              <ol className="list-decimal list-inside space-y-1.5 text-slate-300 pl-1">
+              <ol className="list-decimal list-inside space-y-1.5 pl-1">
                 <li>
-                  Click the <strong className="text-white">padlock or site settings icon</strong> next to the URL in your browser address bar.
+                  Click the <strong>padlock or site settings icon</strong> next to the URL in your browser address bar.
                 </li>
                 <li>
-                  Find <strong className="text-white">Microphone</strong> and set it to <strong className="text-emerald-400">Allow</strong>.
+                  Find <strong>Microphone</strong> and set it to <strong>Allow</strong>.
                 </li>
-                <li>Click the <strong className="text-blue-400">Verify & Grant Access</strong> button below.</li>
+                <li>Click <strong>Verify & Grant Access</strong> below.</li>
               </ol>
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 pt-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               <button
                 onClick={() => {
                   setWithAudio(false);
                   setShowPermissionModal(false);
                 }}
-                className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+                className="studio-quiet-button"
               >
                 Record Without Mic
               </button>
 
               <button
                 onClick={requestMicPermission}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs shadow-md transition-all active:scale-95"
+                className="studio-button"
               >
                 <Check className="h-3.5 w-3.5" />
                 Verify & Grant Access
               </button>
             </div>
-          </div>
-        </div>
+          </dialog>
       )}
 
       {/* Main Screen Recorder Control Strip */}
-      <div className="flex items-center gap-2">
+      <div className="recorder-controls">
         {/* Audio Toggle / Permission Status Button */}
         {!isRecording && !hasRecorded && (
           <button
             onClick={handleMicToggle}
+            aria-label={micPermission === "denied" ? "Microphone blocked. Show instructions" : withAudio ? "Microphone settings" : "Enable microphone"}
             title={
               micPermission === "denied"
                 ? "Microphone blocked in browser (Click to open instructions)"
@@ -992,15 +996,8 @@ export function ScreenRecorder() {
                 ? "Microphone active (Click to mute)"
                 : "Microphone muted (Click to unmute)"
             }
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all ${
-              micPermission === "denied"
-                ? "border-rose-500/40 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20"
-                : !withAudio
-                ? "border-slate-800 bg-slate-900/60 text-slate-500 hover:text-slate-300 hover:bg-slate-800"
-                : micPermission === "granted"
-                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
-                : "border-blue-500/40 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20"
-            }`}
+            className="recorder-control"
+            data-state={withAudio ? micPermission : "muted"}
           >
             {micPermission === "denied" || !withAudio ? (
               <MicOff className="h-3.5 w-3.5" />
@@ -1022,7 +1019,7 @@ export function ScreenRecorder() {
         {/* Recording State Controls */}
         {isRecording ? (
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-red-500/10 text-red-400 text-xs font-mono font-medium">
+            <div className="flex items-center gap-2 px-2.5 py-1 text-xs text-red-700">
               <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
               <span>{formatTime(recordedSeconds)}</span>
             </div>
@@ -1030,11 +1027,11 @@ export function ScreenRecorder() {
             {/* LIVE AUDIO LEVEL VU METER */}
             {withAudio && (
               <div
-                className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-800/80 border border-slate-700/80 text-xs"
+                className="flex items-center gap-1.5 rounded border border-border bg-secondary px-2 py-1 text-xs"
                 title={`Microphone input level: ${Math.round(audioLevel * 100)}%`}
               >
                 <Mic className={`h-3 w-3 ${audioLevel > 0.05 ? "text-emerald-400 animate-pulse" : "text-slate-400"}`} />
-                <div className="w-10 h-1.5 bg-slate-950 rounded-full overflow-hidden flex items-center p-0.5">
+                <div className="w-10 h-1.5 bg-border rounded-full overflow-hidden flex items-center p-0.5">
                   <div
                     className="h-full bg-emerald-400 rounded-full transition-all duration-75"
                     style={{ width: `${Math.max(6, Math.round(audioLevel * 100))}%` }}
@@ -1045,7 +1042,7 @@ export function ScreenRecorder() {
 
             <button
               onClick={stopRecording}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-medium text-xs transition-colors"
+              className="recorder-control recorder-stop"
             >
               <Square className="h-3 w-3 fill-current" />
               <span>Stop</span>
@@ -1055,7 +1052,7 @@ export function ScreenRecorder() {
           <div className="flex items-center gap-1.5">
             <button
               onClick={downloadRecording}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 font-medium text-xs transition-colors"
+              className="recorder-control recorder-download"
             >
               <Download className="h-3 w-3" />
               <span>Download MP4</span>
@@ -1064,7 +1061,8 @@ export function ScreenRecorder() {
             <button
               onClick={() => setHasRecorded(false)}
               title="Reset recording"
-              className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors"
+              aria-label="Reset recording"
+              className="drawing-icon-button"
             >
               <RotateCcw className="h-3.5 w-3.5" />
             </button>
@@ -1072,7 +1070,7 @@ export function ScreenRecorder() {
         ) : (
           <button
             onClick={startRecording}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-medium text-xs transition-colors"
+            className="recorder-control recorder-record"
           >
             <span className="h-2 w-2 rounded-full bg-red-500" />
             <span>Record</span>
