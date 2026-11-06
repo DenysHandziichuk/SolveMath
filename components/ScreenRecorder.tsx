@@ -12,10 +12,16 @@ import {
   X,
 } from "lucide-react";
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
+import { isCaptureConstraintError, recordingExtension, supportedRecordingType } from "@/lib/recording";
 
 export function ScreenRecorder() {
   const [isRecording, setIsRecording] = useState(false);
   const [hasRecorded, setHasRecorded] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
+  const [recordingError, setRecordingError] = useState("");
+  const startingRef = useRef(false);
+  const mountedRef = useRef(true);
+  const hiddenVideoRef = useRef<HTMLVideoElement | null>(null);
   const [withAudio, setWithAudio] = useState(true);
   const [recordedSeconds, setRecordedSeconds] = useState(0);
 
@@ -30,8 +36,8 @@ export function ScreenRecorder() {
     if (showPermissionModal && dialog && !dialog.open) dialog.showModal();
   }, [showPermissionModal]);
 
-  // Resulting MP4 Blob reference (guaranteed genuine ISO-BMFF MP4)
-  const mp4BlobRef = useRef<Blob | null>(null);
+  // Keep the actual container type for the recording download.
+  const recordingBlobRef = useRef<Blob | null>(null);
 
   // Active recording control refs
   const isRecordingRef = useRef(false);
@@ -50,28 +56,54 @@ export function ScreenRecorder() {
   const scriptNodeRef = useRef<ScriptProcessorNode | null>(null);
   const audioProcessorReaderRef = useRef<ReadableStreamDefaultReader<unknown> | null>(null);
 
-  // Check microphone permissions status on mount and subscribe to changes
-  useEffect(() => {
-    if (typeof navigator !== "undefined" && navigator.permissions?.query) {
-      try {
-        navigator.permissions.query({ name: "microphone" as PermissionName }).then((status: PermissionStatus) => {
-          setMicPermission(status.state as "granted" | "prompt" | "denied");
-          status.onchange = () => {
-            setMicPermission(status.state as "granted" | "prompt" | "denied");
-          };
-        }).catch(() => {
-          setMicPermission("unknown");
-        });
-      } catch {
-        setMicPermission("unknown");
-      }
+  const releaseCapture = useCallback(() => {
+    isRecordingRef.current = false;
+    if (requestRef.current) { cancelAnimationFrame(requestRef.current); requestRef.current = null; }
+    activeStreamsRef.current.forEach((stream) => stream.getTracks().forEach((track) => track.stop()));
+    activeStreamsRef.current = [];
+    if (hiddenVideoRef.current) { hiddenVideoRef.current.pause(); hiddenVideoRef.current.srcObject = null; hiddenVideoRef.current = null; }
+    void audioProcessorReaderRef.current?.cancel().catch(() => {});
+    audioProcessorReaderRef.current = null;
+    try { scriptNodeRef.current?.disconnect(); } catch {}
+    scriptNodeRef.current = null;
+    if (audioContextRef.current && audioContextRef.current.state !== "closed") void audioContextRef.current.close().catch(() => {});
+    audioContextRef.current = null;
+    analyserRef.current = null;
+    try { if (videoEncoderRef.current && videoEncoderRef.current.state !== "closed") videoEncoderRef.current.close(); } catch {}
+    try { if (audioEncoderRef.current && audioEncoderRef.current.state !== "closed") audioEncoderRef.current.close(); } catch {}
+    videoEncoderRef.current = null;
+    audioEncoderRef.current = null;
+    muxerRef.current = null;
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.onstop = null;
+      mediaRecorderRef.current.ondataavailable = null;
+      if (mediaRecorderRef.current.state !== "inactive") mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
     }
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; releaseCapture(); };
+  }, [releaseCapture]);
+
+  useEffect(() => {
+    let disposed = false;
+    let permission: PermissionStatus | undefined;
+    if (navigator.permissions?.query) {
+      navigator.permissions.query({ name: "microphone" as PermissionName }).then((status) => {
+        if (disposed) return;
+        permission = status;
+        setMicPermission(status.state);
+        status.onchange = () => { if (!disposed) setMicPermission(status.state); };
+      }).catch(() => { if (!disposed) setMicPermission("unknown"); });
+    }
+    return () => { disposed = true; if (permission) permission.onchange = null; };
   }, []);
 
   // Timer logic for recording HUD
   useEffect(() => {
     if (isRecording) {
-      setRecordedSeconds(0);
       timerRef.current = setInterval(() => {
         setRecordedSeconds((prev) => prev + 1);
       }, 1000);
@@ -85,10 +117,7 @@ export function ScreenRecorder() {
 
   // Live audio VU meter animation loop during active recording
   useEffect(() => {
-    if (!isRecording) {
-      setAudioLevel(0);
-      return;
-    }
+    if (!isRecording) return;
     let animId: number;
     const sampleAudioLevel = () => {
       if (analyserRef.current && isRecordingRef.current) {
@@ -121,7 +150,8 @@ export function ScreenRecorder() {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         });
-      } catch {
+      } catch (error) {
+        if (!isCaptureConstraintError(error)) throw error;
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       }
       stream.getTracks().forEach((t) => t.stop());
@@ -247,7 +277,7 @@ export function ScreenRecorder() {
         cleanedPpsList.push(pps);
       }
 
-      // Rebuild 100% standard-compliant AVCDecoderConfigurationRecord
+      // Rebuild the AVC decoder configuration record
       let totalLen = 6;
       for (const s of cleanedSpsList) totalLen += 2 + s.length;
       totalLen += 1;
@@ -342,10 +372,11 @@ export function ScreenRecorder() {
             console.warn("VideoEncoder flush error:", e);
           }
         }
+        if (!mountedRef.current || !muxerRef.current) return;
         muxerRef.current.finalize();
 
         const buffer = muxerRef.current.target.buffer;
-        mp4BlobRef.current = new Blob([buffer], { type: "video/mp4" });
+        recordingBlobRef.current = new Blob([buffer], { type: "video/mp4" });
         setHasRecorded(true);
       } catch (err) {
         console.error("Finalizing MP4 muxer error:", err);
@@ -375,51 +406,22 @@ export function ScreenRecorder() {
   }, []);
 
   const startRecording = async () => {
-    mp4BlobRef.current = null;
+    if (startingRef.current || isRecordingRef.current) return;
+    if (!navigator.mediaDevices?.getDisplayMedia || (typeof MediaRecorder === "undefined" && typeof VideoEncoder === "undefined")) {
+      setRecordingError("Screen recording isn’t supported in this browser.");
+      return;
+    }
+    startingRef.current = true;
+    setIsStarting(true);
+    setRecordingError("");
+    setRecordedSeconds(0);
+    setAudioLevel(0);
+    recordingBlobRef.current = null;
     chunksRef.current = [];
     setHasRecorded(false);
     activeStreamsRef.current = [];
 
     try {
-      // 1. Proactively capture microphone upfront with fresh user click gesture
-      let micStream: MediaStream | null = null;
-      if (withAudio) {
-        try {
-          micStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-            },
-          });
-        } catch (constraintErr) {
-          console.warn("Retrying microphone with basic audio constraint:", constraintErr);
-          try {
-            micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          } catch (err: unknown) {
-            const errName = (err as { name?: string })?.name;
-            console.warn("Microphone access error:", err);
-            if (errName === "NotAllowedError" || errName === "PermissionDeniedError") {
-              setMicPermission("denied");
-              const proceed = window.confirm(
-                "Microphone permission is blocked in your browser settings.\n\n" +
-                "• Click OK to record presentation video with system/tab audio only.\n" +
-                "• Click Cancel to open permission settings and enable your microphone."
-              );
-              if (!proceed) {
-                setShowPermissionModal(true);
-                return;
-              }
-            }
-          }
-        }
-
-        if (micStream && micStream.getAudioTracks().length > 0) {
-          activeStreamsRef.current.push(micStream);
-          setMicPermission("granted");
-        }
-      }
-
       // 2. Capture display stream with video + audio constraints
       let displayStream: MediaStream;
       try {
@@ -438,14 +440,15 @@ export function ScreenRecorder() {
           preferCurrentTab: true,
           selfBrowserSurface: "include",
         });
-      } catch {
+      } catch (error) {
+        if (!isCaptureConstraintError(error)) throw error;
         try {
           displayStream = await navigator.mediaDevices.getDisplayMedia({
             video: { frameRate: { ideal: 60 } },
             audio: true,
           });
         } catch (err: unknown) {
-          if (err instanceof TypeError || (err as { name?: string })?.name === "TypeError") {
+          if (isCaptureConstraintError(err)) {
             displayStream = await navigator.mediaDevices.getDisplayMedia({
               video: { frameRate: { ideal: 60 } },
               audio: false,
@@ -456,6 +459,39 @@ export function ScreenRecorder() {
         }
       }
       activeStreamsRef.current.push(displayStream);
+      if (!mountedRef.current) return;
+
+      // Capture microphone audio after the user has chosen a screen-sharing surface.
+      let micStream: MediaStream | null = null;
+      if (withAudio) {
+        try {
+          micStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
+        } catch (error) {
+          if (isCaptureConstraintError(error)) {
+            try { micStream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { micStream = null; }
+          }
+          if (!micStream) {
+            if (error && typeof error === "object" && "name" in error && ["NotAllowedError", "PermissionDeniedError"].includes(String(error.name))) {
+              setMicPermission("denied");
+              setShowPermissionModal(true);
+            } else setRecordingError("The microphone couldn’t be opened. Turn it off to record without microphone audio.");
+            return;
+          }
+        }
+
+        if (micStream && micStream.getAudioTracks().length > 0) {
+          activeStreamsRef.current.push(micStream);
+          if (!mountedRef.current) return;
+          setMicPermission("granted");
+        }
+      }
+
 
       // 2. Locate Presentation Stage
       const presentationElement =
@@ -465,10 +501,12 @@ export function ScreenRecorder() {
 
       // Hidden video element to read display stream frames
       const hiddenVideo = document.createElement("video");
+      hiddenVideoRef.current = hiddenVideo;
       hiddenVideo.srcObject = displayStream;
       hiddenVideo.muted = true;
       hiddenVideo.playsInline = true;
       await hiddenVideo.play();
+      if (!mountedRef.current) return;
 
       // 3. Fixed 1920x1080 (16:9) Target Canvas
       const TARGET_WIDTH = 1920;
@@ -508,7 +546,7 @@ export function ScreenRecorder() {
       const hasMozScreen =
         typeof (window as unknown as { mozInnerScreenX?: number }).mozInnerScreenX === "number";
 
-      // Canvas Rendering Function with Strict 16:9 Aspect Ratio & Zero UI Bleed
+      // Crop the selected capture surface to the slide area. Browser window offsets are estimates.
       const renderFrameToCanvas = () => {
         if (!ctx || hiddenVideo.readyState < 2) return;
         const rect = presentationElement.getBoundingClientRect();
@@ -634,46 +672,52 @@ export function ScreenRecorder() {
 
       // 5. Try WebCodecs + MP4-Muxer for Genuine ISO-BMFF MP4 Output
       const avcCodec = await getSupportedAvcCodec();
+      if (!mountedRef.current) return;
 
-      if (avcCodec && typeof VideoEncoder !== "undefined") {
-        console.log("Encoding with WebCodecs MP4 Muxer, video codec:", avcCodec);
-        const target = new ArrayBufferTarget();
+      // Audio Codec Selection for MP4
+      let audioCodecName: "aac" | "opus" | null = null;
+      let audioEncoderCodec: string | null = null;
+      const audioSampleRate = audioContextRef.current?.sampleRate || 48000;
 
-        // Audio Codec Selection for MP4
-        let audioCodecName: "aac" | "opus" | null = null;
-        let audioEncoderCodec: string | null = null;
-        const audioSampleRate = audioContextRef.current?.sampleRate || 48000;
+      if (avcCodec && mixedAudioTrack && typeof AudioEncoder !== "undefined") {
+        try {
+          // Check AAC first (universal for Windows Media Player, iOS, Web)
+          const aacRes = await AudioEncoder.isConfigSupported({
+            codec: "mp4a.40.2",
+            sampleRate: audioSampleRate,
+            numberOfChannels: 1,
+            bitrate: 128_000,
+          }).catch(() => ({ supported: false }));
 
-        if (mixedAudioTrack && typeof AudioEncoder !== "undefined") {
-          try {
-            // Check AAC first (universal for Windows Media Player, iOS, Web)
-            const aacRes = await AudioEncoder.isConfigSupported({
-              codec: "mp4a.40.2",
+          if (aacRes.supported) {
+            audioCodecName = "aac";
+            audioEncoderCodec = "mp4a.40.2";
+          } else {
+            const opusRes = await AudioEncoder.isConfigSupported({
+              codec: "opus",
               sampleRate: audioSampleRate,
               numberOfChannels: 1,
               bitrate: 128_000,
             }).catch(() => ({ supported: false }));
 
-            if (aacRes.supported) {
-              audioCodecName = "aac";
-              audioEncoderCodec = "mp4a.40.2";
-            } else {
-              const opusRes = await AudioEncoder.isConfigSupported({
-                codec: "opus",
-                sampleRate: audioSampleRate,
-                numberOfChannels: 1,
-                bitrate: 128_000,
-              }).catch(() => ({ supported: false }));
-
-              if (opusRes.supported) {
-                audioCodecName = "opus";
-                audioEncoderCodec = "opus";
-              }
+            if (opusRes.supported) {
+              audioCodecName = "opus";
+              audioEncoderCodec = "opus";
             }
-          } catch (e) {
-            console.warn("AudioEncoder support probe error:", e);
           }
+        } catch (e) {
+          console.warn("AudioEncoder support probe error:", e);
         }
+      }
+
+      if (!mountedRef.current) return;
+      if (displayStream.getVideoTracks()[0]?.readyState !== "live") throw new Error("Screen sharing ended before recording started");
+      const canReadAudio = "MediaStreamTrackProcessor" in window || typeof AudioData !== "undefined";
+
+      if (avcCodec && typeof VideoEncoder !== "undefined" && (!mixedAudioTrack || (audioEncoderCodec && canReadAudio))) {
+        if (!mountedRef.current) return;
+        console.log("Encoding with WebCodecs MP4 Muxer, video codec:", avcCodec);
+        const target = new ArrayBufferTarget();
 
         const muxer = new Muxer({
           target,
@@ -723,6 +767,11 @@ export function ScreenRecorder() {
           framerate: 60,
         });
         videoEncoderRef.current = videoEncoder;
+
+        // The audio reader must be active before it begins consuming frames.
+        isRecordingRef.current = true;
+
+        if (!mountedRef.current) return;
 
         // Configure AudioEncoder if available
         if (audioCodecName && audioEncoderCodec && mixedAudioTrack) {
@@ -865,6 +914,7 @@ export function ScreenRecorder() {
       // 6. Fallback: MediaRecorder if WebCodecs is not supported
       console.warn("WebCodecs AVC not supported, falling back to MediaRecorder");
       const croppedStream = canvas.captureStream(60);
+      activeStreamsRef.current.push(croppedStream);
       if (mixedAudioTrack) {
         croppedStream.addTrack(mixedAudioTrack);
       }
@@ -875,8 +925,11 @@ export function ScreenRecorder() {
         requestRef.current = requestAnimationFrame(drawLoopFallback);
       };
 
+      if (typeof MediaRecorder === "undefined") throw new Error("No supported video encoder");
+      const mimeType = supportedRecordingType((type) => MediaRecorder.isTypeSupported(type));
       const mediaRecorder = new MediaRecorder(croppedStream, {
         videoBitsPerSecond: 10_000_000,
+        ...(mimeType ? { mimeType } : {}),
       });
 
       mediaRecorder.ondataavailable = (e) => {
@@ -884,11 +937,11 @@ export function ScreenRecorder() {
       };
 
       mediaRecorder.onstop = () => {
-        mp4BlobRef.current = new Blob(chunksRef.current, { type: "video/mp4" });
+        const type = mediaRecorder.mimeType || chunksRef.current.find((chunk) => chunk.type)?.type || mimeType || "application/octet-stream";
+        recordingBlobRef.current = new Blob(chunksRef.current, { type });
         setIsRecording(false);
         setHasRecorded(true);
-        activeStreamsRef.current.forEach((s) => s.getTracks().forEach((t) => t.stop()));
-        if (requestRef.current) cancelAnimationFrame(requestRef.current);
+        releaseCapture();
       };
 
       mediaRecorderRef.current = mediaRecorder;
@@ -898,22 +951,32 @@ export function ScreenRecorder() {
       mediaRecorder.start(1000);
 
       displayStream.getVideoTracks()[0].onended = () => {
-        if (mediaRecorder.state !== "inactive") mediaRecorder.stop();
+        void stopRecording();
       };
     } catch (err) {
-      console.error("Recording initialization failed:", err);
-      alert("Recording could not be started. Please ensure screen sharing and microphone permissions are enabled.");
+      isRecordingRef.current = false;
+      if (mountedRef.current) {
+        setIsRecording(false);
+        const name = err && typeof err === "object" && "name" in err ? String(err.name) : "";
+        setRecordingError(["NotAllowedError", "AbortError"].includes(name)
+          ? "Screen sharing was canceled. Choose the presentation tab to start recording."
+          : "Recording couldn’t start. Check screen-sharing permissions and try again.");
+      }
+    } finally {
+      startingRef.current = false;
+      if (mountedRef.current) setIsStarting(false);
+      if (!mountedRef.current || !isRecordingRef.current) releaseCapture();
     }
   };
 
   const downloadRecording = () => {
-    const blob = mp4BlobRef.current;
+    const blob = recordingBlobRef.current;
     if (!blob) return;
 
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `SolveMath_1080p60_${Date.now()}.mp4`;
+    link.download = `SolveMath_recording_${Date.now()}.${recordingExtension(blob.type)}`;
     link.click();
     setTimeout(() => window.URL.revokeObjectURL(url), 2000);
   };
@@ -954,7 +1017,7 @@ export function ScreenRecorder() {
                 <li>
                   Find <strong>Microphone</strong> and set it to <strong>Allow</strong>.
                 </li>
-                <li>Click <strong>Verify & Grant Access</strong> below.</li>
+                <li>Click <strong>Check microphone access</strong> below.</li>
               </ol>
             </div>
 
@@ -966,7 +1029,7 @@ export function ScreenRecorder() {
                 }}
                 className="studio-quiet-button"
               >
-                Record Without Mic
+                Record without microphone
               </button>
 
               <button
@@ -974,18 +1037,20 @@ export function ScreenRecorder() {
                 className="studio-button"
               >
                 <Check className="h-3.5 w-3.5" />
-                Verify & Grant Access
+                Check microphone access
               </button>
             </div>
           </dialog>
       )}
 
+      {recordingError && <p role="alert" className="recorder-error">{recordingError}</p>}
       {/* Main Screen Recorder Control Strip */}
       <div className="recorder-controls">
         {/* Audio Toggle / Permission Status Button */}
         {!isRecording && !hasRecorded && (
           <button
             onClick={handleMicToggle}
+            disabled={isStarting}
             aria-label={micPermission === "denied" ? "Microphone blocked. Show instructions" : withAudio ? "Microphone settings" : "Enable microphone"}
             title={
               micPermission === "denied"
@@ -1055,7 +1120,7 @@ export function ScreenRecorder() {
               className="recorder-control recorder-download"
             >
               <Download className="h-3 w-3" />
-              <span>Download MP4</span>
+              <span>Download recording</span>
             </button>
 
             <button
@@ -1070,10 +1135,11 @@ export function ScreenRecorder() {
         ) : (
           <button
             onClick={startRecording}
+            disabled={isStarting}
             className="recorder-control recorder-record"
           >
             <span className="h-2 w-2 rounded-full bg-red-500" />
-            <span>Record</span>
+            <span>{isStarting ? "Starting…" : "Record"}</span>
           </button>
         )}
       </div>

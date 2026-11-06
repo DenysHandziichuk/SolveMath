@@ -1,3 +1,5 @@
+import type { GraphData } from "./graph-data";
+
 export interface LessonProblem {
   id: string;
   title: string;
@@ -13,10 +15,10 @@ export interface LessonProblem {
       content: string;
       notes: string;
       type?: "intro" | "concept" | "derivation" | "graph" | "summary" | "solution" | "conclusion";
-      graphs?: any[];
-      graphData?: any;
+      graphs?: GraphData[];
+      graphData?: GraphData;
     }[];
-    graphs?: any[];
+    graphs?: GraphData[];
     graphData?: {
       type: string;
       equation: string;

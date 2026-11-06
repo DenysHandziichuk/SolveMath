@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import katex from "katex";
+import { escapeMathHtml, renderSafeMath } from "@/lib/math-rendering";
 import { cn } from "@/lib/utils";
 import { normalizeSlideLineBreaks } from "@/lib/slide-text";
 
@@ -238,15 +238,9 @@ export function MathRenderer({ text, className, inline = false }: MathRendererPr
         // Convert -> to \to
         tex = tex.replace(/(?<![\\-])->/g, " \\to ");
 
-        return katex.renderToString(tex, {
-          displayMode,
-          throwOnError: false,
-          strict: false,
-          trust: true,
-          output: "htmlAndMathml",
-        });
+        return renderSafeMath(tex, displayMode);
       } catch {
-        return rawTex;
+        return escapeMathHtml(rawTex);
       }
     };
 

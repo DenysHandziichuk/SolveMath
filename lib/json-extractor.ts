@@ -1,12 +1,14 @@
 /**
- * Bulletproof JSON cleaner, normalizer, and parser for LLM responses.
- * Never throws an unhandled error — guarantees valid { questions: [...] }
- * or { slides: [...] } structure even on conversational, markdown, or malformed outputs.
+ * Parse and normalize question and presentation responses.
+ * Recover supported JSON and markdown formats while preserving problem text.
  */
 
 import { normalizeSlideLineBreaks } from "./slide-text";
+import { hasGraphLayout, isSlideTemplate, type SlideTemplate } from "./presentation";
+import { normalizeGraphData, normalizeGraphs, normalizeQuestionVisuals, type GraphData, type QuestionVisuals } from "./graph-data";
+import { normalizeSlideTables, type SlideTable } from "./slide-tables";
 
-export interface ExtractedQuestion {
+export interface ExtractedQuestion extends QuestionVisuals {
   id: string;
   text: string;
   difficulty: number;
@@ -18,16 +20,20 @@ export interface ExtractedSlide {
   subtitle?: string;
   content: string;
   notes: string;
+  visualContext?: string;
+  layout?: SlideTemplate;
+  secondaryContent?: string;
   type?: string;
-  graphData?: Record<string, unknown>;
-  graphs?: Record<string, unknown>[];
+  graphData?: GraphData;
+  graphs?: GraphData[];
+  tables?: SlideTable[];
 }
 
 export interface ExtractedSolution {
   explanation: string;
   slides: ExtractedSlide[];
-  graphData?: Record<string, unknown>;
-  graphs?: Record<string, unknown>[];
+  graphData?: GraphData;
+  graphs?: GraphData[];
 }
 
 /** Reject incomplete decks and the old generic checklist masquerading as a solution. */
@@ -46,7 +52,7 @@ export function getQuestionPartLabels(text: string): string[] {
     .replace(/\$\$[\s\S]*?\$\$|\$[^$\n]*?\$/g, " ")
     .replace(/\*\*|__/g, "");
   const markers = prose.matchAll(
-    /(?:^|[\s,;:])(?:\(([a-z]|[ivxlcdm]+)\)|([a-z]|[ivxlcdm]+)\)|Part\s+([a-z]|[ivxlcdm]+|\d+)\s*[:.)-])(?=\s)/gi
+    /(?:^|[\s,;:])(?:\(([a-z]|[ivxlcdm]+)\)|([a-z]|[ivxlcdm]+)\)|Part\s+([a-z]|[ivxlcdm]+|\d+)\s*[:.)-])(?=\s|$)/gi
   );
   return [...new Set(Array.from(markers, (match) => (match[1] || match[2] || match[3]).toLowerCase()))];
 }
@@ -57,7 +63,7 @@ export function getQuestionPartLabels(text: string): string[] {
  */
 export function cleanSpeakerScript(rawScript: string): string {
   if (!rawScript || typeof rawScript !== "string") {
-    return "Let's work through the problem step by step to find the solution.";
+    return "";
   }
 
   let script = rawScript.trim();
@@ -90,7 +96,7 @@ export function cleanSpeakerScript(rawScript: string): string {
   }
 
   if (!script) {
-    return "Let's work through the problem step by step to find the solution.";
+    return "";
   }
 
   // Ensure first character is capitalized
@@ -330,19 +336,13 @@ function decodeQuestionLineBreaks(text: string): string {
 
 function cleanSlideText(raw: string, isProblemSlide: boolean = false): string {
   if (!raw) return "";
-  let text = (isProblemSlide ? raw : normalizeSlideLineBreaks(raw))
+  if (isProblemSlide) return raw.trim();
+  const text = normalizeSlideLineBreaks(raw)
     .replace(/(?:^|\n)[ \t]*(?:#+\s*)?(?:key takeaways?|takeaways?|governing conditions?)\s*[:.\-–—]*/gi, "\n")
     .replace(/[ \t]*(?:state all governing(?: mathematical)? conditions?\.?)/gi, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  if (isProblemSlide) {
-    text = text
-      .replace(/^(?:Problem|Prompt|Question|Problem Statement)\s*[:.\-–—]\s*/i, "")
-      .replace(/\n*(?:Identify given values and what needs to be solved\.?)\s*$/i, "")
-      .replace(/\n*(?:State all governing conditions\.?)\s*$/i, "")
-      .trim();
-  }
 
   return text;
 }
@@ -354,14 +354,15 @@ function cleanSlideText(raw: string, isProblemSlide: boolean = false): string {
 export function normalizeSolution(
   data: unknown,
   problemText?: string,
-  topic?: string
+  topic?: string,
+  hasVisualEvidence = false
 ): ExtractedSolution | null {
   if (typeof data === "object" && data !== null) {
     const obj = data as Record<string, unknown>;
     if (Array.isArray(obj.slides) && obj.slides.length > 0) {
-      const needsGraph = problemText
+      const needsGraph = hasVisualEvidence || (problemText
         ? isGeometryOrGraphingTask(problemText, topic)
-        : Boolean(obj.graphData && (obj.graphData as Record<string, unknown>).functions);
+        : Boolean(obj.graphData || obj.graphs || (obj.slides as Record<string, unknown>[]).some((slide) => slide.graphData || slide.graphs)));
 
       const isGraphSlide = (slide: Record<string, unknown>) =>
         /^(?:graph|evidence|comparison)$/i.test(String(slide.type || "")) ||
@@ -373,24 +374,24 @@ export function normalizeSolution(
 
       // Extract graphs or graphData from obj or slide level
       const solutionGraphs =
-        (Array.isArray(obj.graphs) ? (obj.graphs as Record<string, unknown>[]) : undefined) ||
+        (Array.isArray(obj.graphs) ? normalizeGraphs(obj.graphs) : undefined) ||
         (Array.isArray((obj.graphData as Record<string, unknown>)?.graphs)
-          ? ((obj.graphData as Record<string, unknown>).graphs as Record<string, unknown>[])
+          ? normalizeGraphs((obj.graphData as Record<string, unknown>).graphs)
           : undefined);
 
-      let liftedGraphData = (obj.graphData as Record<string, unknown>) || undefined;
+      let liftedGraphData = normalizeGraphData(obj.graphData);
       let liftedGraphs = solutionGraphs;
 
       // If top-level obj doesn't have graphData or graphs, check if any slide has it:
       if (!liftedGraphData && !liftedGraphs) {
         for (const s of inputSlides) {
           if (Array.isArray(s.graphs) && s.graphs.length > 0) {
-            liftedGraphs = s.graphs as Record<string, unknown>[];
-            liftedGraphData = s.graphs[0] as Record<string, unknown>;
+            liftedGraphs = normalizeGraphs(s.graphs);
+            liftedGraphData = normalizeGraphData(s.graphs[0]);
             break;
           }
           if (s.graphData && typeof s.graphData === "object") {
-            liftedGraphData = s.graphData as Record<string, unknown>;
+            liftedGraphData = normalizeGraphData(s.graphData);
             break;
           }
         }
@@ -406,19 +407,26 @@ export function normalizeSolution(
           const rawContent = isFirst && problemText ? problemText : String(s.content || s.text || "");
 
           const slideGraphs = Array.isArray(s.graphs)
-            ? (s.graphs as Record<string, unknown>[])
+            ? (normalizeGraphs(s.graphs))
             : undefined;
-          const slideGraphData = (s.graphData as Record<string, unknown>) || undefined;
+          const slideGraphData = normalizeGraphData(s.graphData);
+          const tables = normalizeSlideTables(s.tables);
+          const layout = tables.length
+            ? (needsGraph && (slideGraphs?.length || slideGraphData) || s.layout === "table-graph" && needsGraph ? "table-graph" : "table")
+            : isSlideTemplate(s.layout) && (needsGraph || !hasGraphLayout(s.layout)) ? s.layout : undefined;
 
           return {
             title,
             subtitle: s.subtitle ? String(s.subtitle) : (topic || "Advanced Functions"),
             content: cleanSlideText(rawContent, isFirst),
             notes: cleanSpeakerScript(
-              String(s.notes || s.script || "Let's work through the problem step by step to find the solution.")
+              String(s.notes || s.script || "")
             ),
             type: isFirst ? "intro" : isLast ? "conclusion" : isGraph ? "graph" : "solution",
             graphData: needsGraph ? slideGraphData : undefined,
+            ...(layout ? { layout } : {}),
+            ...(typeof s.secondaryContent === "string" ? { secondaryContent: cleanSlideText(s.secondaryContent) } : {}),
+            ...(tables.length ? { tables } : {}),
             graphs: needsGraph ? slideGraphs : undefined,
           };
         }),
@@ -434,7 +442,8 @@ export function extractJson<T = Record<string, unknown>>(
   raw: string,
   mode: "questions" | "solution" = "questions",
   problemText?: string,
-  topic?: string
+  topic?: string,
+  hasVisualEvidence = false
 ): T {
   if (!raw || typeof raw !== "string" || raw.trim().length === 0) {
     if (mode === "questions") {
@@ -496,6 +505,7 @@ export function extractJson<T = Record<string, unknown>>(
           text: text.trim(),
           difficulty: Number(item?.difficulty || 5),
           type: String(item?.type || item?.chapter || item?.topic || detectTopic(text)),
+          ...normalizeQuestionVisuals(item || {}),
         };
       });
       return { questions: qs };
@@ -522,6 +532,7 @@ export function extractJson<T = Record<string, unknown>>(
               text: formatQuestionSubparts(text.trim()),
               difficulty: Number(obj.difficulty || 5),
               type: String(obj.type || detectTopic(text)),
+              ...normalizeQuestionVisuals(obj),
             },
           ],
         };
@@ -560,7 +571,7 @@ export function extractJson<T = Record<string, unknown>>(
       const fin = finalizeQuestions(norm);
       if (fin) return fin;
     } else {
-      const norm = normalizeSolution(parsed, problemText, topic);
+      const norm = normalizeSolution(parsed, problemText, topic, hasVisualEvidence);
       if (norm && norm.slides.length > 0) return norm as unknown as T;
     }
   } catch {}
@@ -585,7 +596,7 @@ export function extractJson<T = Record<string, unknown>>(
         const fin = finalizeQuestions(norm);
         if (fin) return fin;
       } else {
-        const norm = normalizeSolution(parsed, problemText, topic);
+        const norm = normalizeSolution(parsed, problemText, topic, hasVisualEvidence);
         if (norm && norm.slides.length > 0) return norm as unknown as T;
       }
     }
@@ -630,7 +641,7 @@ export function extractJson<T = Record<string, unknown>>(
       const fin = finalizeQuestions(norm);
       if (fin) return fin;
     } else {
-      const norm = normalizeSolution(objectResult, problemText, topic);
+      const norm = normalizeSolution(objectResult, problemText, topic, hasVisualEvidence);
       if (norm && norm.slides.length > 0) return norm as unknown as T;
     }
   }
@@ -742,7 +753,7 @@ export function parseSolutionFromMarkdown(
     const title = rawTitle.length > 2 ? rawTitle : `Step ${slides.length + 1}`;
 
     const contentLines: string[] = [];
-    let notes = "Analyze the mathematical constraints and derive the exact solution.";
+    let notes = "";
 
     for (let j = 1; j < lines.length; j++) {
       const line = lines[j];
@@ -758,7 +769,7 @@ export function parseSolutionFromMarkdown(
 
     slides.push({
       title,
-      subtitle: "Mathematical Derivation",
+      subtitle: topic || "Mathematics",
       content: contentLines.join("\n") || title,
       notes,
       type: /^(?:evidence|graph|visual|plot|coordinate)\b/i.test(title) ? "graph" : "solution",
@@ -768,7 +779,7 @@ export function parseSolutionFromMarkdown(
   if (slides.length >= 2) {
     return normalizeSolution(
       {
-        explanation: "Problem Analysis and Step-by-Step Resolution",
+        explanation: "Step-by-step solution",
         slides,
       },
       problemText,
@@ -937,7 +948,7 @@ b) The parabolas $y = x^2$ and $y = -x^2$ and the graphs of other even-degree po
 • End behavior in same direction: both ends $\\to \\infty$ when $a_n > 0$.
 • Line symmetry across $y$-axis: $f(-x) = f(x)$.
 • Restricted range ($y \\ge k$ or $y \\le k$) guaranteeing at least one absolute extremum.`,
-      notes: "Notice the governing patterns. Odd-degree polynomials always have ends heading in opposite directions, guaranteeing an unrestricted range and at least one real root. In contrast, even-degree polynomials have both ends pointing in the exact same direction, which forces the graph to turn around, establishing a restricted range and an absolute extremum.",
+      notes: "Odd-degree polynomials always have ends heading in opposite directions, guaranteeing an unrestricted range and at least one real root. In contrast, even-degree polynomials have both ends pointing in the exact same direction, which forces the graph to turn around, establishing a restricted range and an absolute extremum.",
       type: "solution",
     },
     {
@@ -1068,7 +1079,7 @@ c) The number of turning points (local extrema)`,
 \\end{array}$$
 
 $$\\boxed{\\text{Max zeros } = n, \\quad \\text{Max turning points } = n - 1}$$`,
-      notes: "To conclude, the degree n establishes the maximum number of x-intercepts at n and turning points at n minus 1, with parity governing global extrema and minimum root counts.",
+      notes: "To conclude, the degree n establishes the maximum number of x-intercepts at n and turning points at n minus 1, with even or odd degree determining the end behavior.",
       type: "conclusion",
     },
   ];
@@ -1178,7 +1189,7 @@ function buildEvenOddDegreeFunctionsSolution(problemText: string, topic?: string
       title: "Problem",
       subtitle: cleanTopic,
       content: cleanSlideText(problemText, true),
-      notes: "We are exploring whether polynomial degree guarantees even or odd function symmetry.",
+      notes: "Check whether an even or odd degree determines the function’s symmetry.",
       type: "intro",
     },
     {
@@ -1194,9 +1205,9 @@ function buildEvenOddDegreeFunctionsSolution(problemText: string, topic?: string
   $$f(-x) = (-x)^2 + (-x) = x^2 - x$$
   Since $f(-x) \\neq f(x)$ and $f(-x) \\neq -f(x)$, this function is **neither even nor odd**.
 
-• **Governing Rule:**
+• **Rule:**
   An even-degree polynomial is even **if and only if every term has an even exponent** (including constant terms $c = cx^0$). Any odd-powered term breaks even symmetry.`,
-      notes: "First, let's examine even-degree polynomials. An even degree does not guarantee an even function. For example, f of x equals x squared plus x has even degree 2, but f of negative x equals x squared minus x, which is not equal to f of x. The linear term breaks line symmetry across the y-axis.",
+      notes: "An even degree does not guarantee an even function. For example, f of x equals x squared plus x has even degree 2, but f of negative x equals x squared minus x, which is not equal to f of x. The linear term breaks line symmetry across the y-axis.",
       type: "solution",
     },
     {
@@ -1212,9 +1223,9 @@ function buildEvenOddDegreeFunctionsSolution(problemText: string, topic?: string
   $$g(-x) = (-x)^3 + (-x)^2 = -x^3 + x^2$$
   Since $g(-x) \\neq g(x)$ and $g(-x) \\neq -g(x)$, this function is **neither even nor odd**.
 
-• **Governing Rule:**
+• **Rule:**
   An odd-degree polynomial is an odd function **if and only if every term has an odd exponent** (no even powers or constants). Any even power breaks rotational symmetry.`,
-      notes: "Second, let's examine odd-degree polynomials. An odd degree does not guarantee an odd function. For instance, g of x equals x cubed plus x squared has odd degree 3, but g of negative x is negative x cubed plus x squared, which is neither g of x nor negative g of x. The quadratic term eliminates point symmetry about the origin.",
+      notes: "An odd degree does not guarantee an odd function. For instance, g of x equals x cubed plus x squared has odd degree 3, but g of negative x is negative x cubed plus x squared, which is neither g of x nor negative g of x. The quadratic term eliminates point symmetry about the origin.",
       type: "solution",
     },
     {
@@ -1232,7 +1243,7 @@ function buildEvenOddDegreeFunctionsSolution(problemText: string, topic?: string
   ];
 
   return {
-    explanation: "Complete conceptual resolution demonstrating why polynomial degree does not guarantee function parity.",
+    explanation: "Polynomial degree alone does not determine even or odd symmetry.",
     slides,
   };
 }
@@ -1535,12 +1546,6 @@ function extractFactorsFromProblem(text: string): ParsedFactors | null {
 
   // Try to find pattern: A/B ÷ C/D or A/B / C/D
   // Where A, B, C, D contain factor groups like (x+3)(x-6)
-  const divisionMatch = clean.match(
-    /\(?([^÷/]*)\)?\s*[/]\s*\(?([^÷]*?)\)?\s*[÷/]\s*\(?([^÷/]*)\)?\s*[/]\s*\(?([^)]*(?:\([^)]*\))*[^)]*)\)?/
-  ) || clean.match(
-    /(\([^)]+\)(?:\s*\([^)]+\))*)\s*[/]\s*(\([^)]+\)(?:\s*\([^)]+\))*)\s*[÷]\s*(\([^)]+\)(?:\s*\([^)]+\))*)\s*[/]\s*(\([^)]+\)(?:\s*\([^)]+\))*)/
-  );
-
   // Simpler approach: extract all (x+n) or (x-n) style factors from the text
   const factorPattern = /\(x\s*([+-])\s*(\d+)\)/gi;
   const allFactors: { str: string; value: number }[] = [];

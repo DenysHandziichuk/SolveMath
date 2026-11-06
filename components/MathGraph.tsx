@@ -1,447 +1,94 @@
 "use client";
 
+import { memo, useId } from "react";
 import { MathRenderer } from "./MathRenderer";
-import { compile } from "mathjs";
-import { useMemo } from "react";
 import { cn } from "@/lib/utils";
+import { graphBounds, type GraphData, type GraphPoint } from "@/lib/graph-data";
+import { compileGraphExpression, graphSegments, sampleGraphFunction } from "@/lib/graph-functions";
+import { DesmosGraph } from "./DesmosGraph";
+import { GraphImage } from "./GraphImage";
 
-interface Point {
-  x: number;
-  y: number;
-}
-
-interface GraphFunction {
-  points?: Point[];
-  mathjs?: string;
+export interface MathGraphProps extends GraphData {
   color?: string;
-  equation?: string;
-}
-
-interface Asymptote {
-  type: "vertical" | "horizontal" | "oblique";
-  value: number | string;
-  label?: string;
-}
-
-interface Hole {
-  x: number;
-  y: number;
-}
-
-export interface MathGraphProps {
-  functions?: GraphFunction[];
-  points?: Point[];
-  properties?: { name: string; value: string }[];
-  bounds?: { minX: number; maxX: number; minY: number; maxY: number };
-  asymptotes?: Asymptote[];
-  holes?: Hole[];
-  isRadian?: boolean;
-  color?: string;
-  equation?: string;
-  title?: string;
-  symmetryAxis?: number;
   compact?: boolean;
+  onPlotPoint?: (point: GraphPoint) => void;
 }
 
-export function MathGraph({
-  functions,
-  points,
-  properties,
-  bounds,
-  asymptotes = [],
-  holes = [],
-  isRadian = false,
-  color = "#3b82f6",
-  equation,
-  title,
-  symmetryAxis,
-  compact = false,
-}: MathGraphProps) {
-  // Coordinate Canvas Dimensions (responsive based on compact mode)
-  const width = compact ? 520 : 640;
-  const height = compact ? 340 : 380;
-  const padding = compact ? 36 : 44;
+function ticks(min: number, max: number, target: number) {
+  const rough = (max - min) / target;
+  const power = 10 ** Math.floor(Math.log10(rough));
+  const step = [1, 2, 5, 10].map((n) => n * power).find((n) => n >= rough) || rough;
+  return Array.from({ length: Math.min(30, Math.floor((max - Math.ceil(min / step) * step) / step) + 1) }, (_, i) =>
+    Number((Math.ceil(min / step) * step + i * step).toPrecision(10)));
+}
 
-  const minX = bounds?.minX ?? (isRadian ? -0.5 : -10);
-  const maxX = bounds?.maxX ?? (isRadian ? 2 * Math.PI + 0.5 : 10);
-  const minY = bounds?.minY ?? -7;
-  const maxY = bounds?.maxY ?? 7;
-
-  // Use mathjs to calculate points if the mathjs string is provided
-  const displayFunctions = useMemo(() => {
-    const rawFunctions: GraphFunction[] = functions || (points ? [{ points, color, equation }] : []);
-
-    return rawFunctions.map((fn) => {
-      if (fn.mathjs) {
-        const generatedPoints: Point[] = [];
-        try {
-          if (fn.mathjs.includes(",")) {
-            // Parametric mode: "x(t), y(t)"
-            const [xEq, yEq] = fn.mathjs.split(",").map((s) => s.trim());
-            const cx = compile(xEq);
-            const cy = compile(yEq);
-            const step = (2 * Math.PI) / 120;
-            for (let t = 0; t <= 2 * Math.PI + 0.05; t += step) {
-              try {
-                const x = cx.evaluate({ t, x: t });
-                const y = cy.evaluate({ t, x: t });
-                if (typeof x === "number" && typeof y === "number" && isFinite(x) && isFinite(y)) {
-                  generatedPoints.push({ x, y });
-                }
-              } catch {}
-            }
-          } else {
-            // Standard y = f(x)
-            const cy = compile(fn.mathjs);
-            const totalSteps = 240;
-            const step = (maxX - minX) / totalSteps;
-            for (let x = minX; x <= maxX; x += step) {
-              try {
-                const y = cy.evaluate({ x, pi: Math.PI, e: Math.E });
-                if (typeof y === "number" && isFinite(y) && !isNaN(y)) {
-                  generatedPoints.push({ x, y });
-                }
-              } catch {}
-            }
-          }
-          return { ...fn, points: generatedPoints.length > 0 ? generatedPoints : fn.points || [] };
-        } catch {
-          return { ...fn, points: fn.points || [] };
-        }
-      }
-      return { ...fn, points: fn.points || [] };
-    });
-  }, [functions, points, color, equation, minX, maxX]);
-
-  // Scaling functions mapping logical units to SVG pixels
-  const scaleX = (x: number) => {
-    return padding + ((x - minX) / (maxX - minX)) * (width - 2 * padding);
-  };
-  const scaleY = (y: number) => {
-    return height - (padding + ((y - minY) / (maxY - minY)) * (height - 2 * padding));
-  };
-
-  // Generate Grid Lines and Ticks
-  const xTicks = useMemo(() => {
-    if (isRadian) {
-      return [
-        { val: 0, label: "0" },
-        { val: Math.PI / 2, label: "π/2" },
-        { val: Math.PI, label: "π" },
-        { val: (3 * Math.PI) / 2, label: "3π/2" },
-        { val: 2 * Math.PI, label: "2π" },
-      ].filter((t) => t.val >= minX && t.val <= maxX);
-    }
-    const xStep = Math.ceil((maxX - minX) / 12) || 1;
-    const ticks = [];
-    for (let x = Math.ceil(minX / xStep) * xStep; x <= maxX; x += xStep) {
-      if (x !== 0 && x >= minX && x <= maxX) {
-        ticks.push({ val: x, label: String(Math.round(x * 10) / 10) });
-      }
-    }
-    return ticks;
-  }, [isRadian, minX, maxX]);
-
-  const yTicks = useMemo(() => {
-    const yStep = Math.ceil((maxY - minY) / 8) || 1;
-    const ticks = [];
-    for (let y = Math.ceil(minY / yStep) * yStep; y <= maxY; y += yStep) {
-      if (y !== 0 && y >= minY && y <= maxY) {
-        ticks.push({ val: y, label: String(Math.round(y * 10) / 10) });
-      }
-    }
-    return ticks;
-  }, [minY, maxY]);
-
-  if (displayFunctions.length === 0 && asymptotes.length === 0) return null;
-
+export const MathGraph = memo(function MathGraph({ color = "#38bdf8", compact = false, onPlotPoint, ...graph }: MathGraphProps) {
+  const clipId = useId().replace(/:/g, "");
+  if (graph.image !== undefined) return <GraphImage key={graph.image.src} image={graph.image} title={graph.title} compact={compact} />;
+  if (graph.desmosUrl !== undefined) return <DesmosGraph key={graph.desmosUrl} url={graph.desmosUrl} title={graph.title} compact={compact} />;
+  const width = 640;
+  const height = 400;
+  const padding = 42;
+  const bounds = graphBounds(graph);
+  const { minX, maxX, minY, maxY } = bounds;
+  const { functions, points = [], holes = [], asymptotes = [], properties = [], title, description, symmetryAxis, reconstruction } = graph;
+  const displayFunctions = (functions || []).map((fn) => ({
+    ...fn, segments: graphSegments(sampleGraphFunction(fn, { minX, maxX, minY, maxY }), { minX, maxX, minY, maxY }, asymptotes),
+  }));
+  const scaleX = (x: number) => padding + (x - minX) / (maxX - minX) * (width - 2 * padding);
+  const scaleY = (y: number) => height - padding - (y - minY) / (maxY - minY) * (height - 2 * padding);
+  const axisX = scaleX(Math.max(minX, Math.min(maxX, 0)));
+  const axisY = scaleY(Math.max(minY, Math.min(maxY, 0)));
+  const xTicks = graph.isRadian
+    ? [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2, 2 * Math.PI].filter((n) => n >= minX && n <= maxX)
+    : ticks(minX, maxX, 12);
+  const yTicks = ticks(minY, maxY, 8);
+  const tickLabel = (x: number) => graph.isRadian ? ({ [Math.PI / 2]: "π/2", [Math.PI]: "π", [3 * Math.PI / 2]: "3π/2", [2 * Math.PI]: "2π" }[x] || String(x)) : String(x);
 
   return (
-    <div
-      className={cn(
-        "math-graph relative flex flex-col items-center justify-center bg-slate-950/80 rounded-2xl border border-slate-800/80 w-full shadow-xl backdrop-blur-md group overflow-hidden transition-all",
-        compact ? "p-2 sm:p-3 max-w-full" : "p-3 sm:p-5 max-w-3xl"
-      )}
-      data-compact={compact}
-    >
-      {/* Title Badge (e.g. for comparing graphs) */}
-      {title && (
-        <div className="absolute top-3 right-3 z-20 pointer-events-none">
-          <div className="bg-slate-900/90 border border-slate-700/80 px-2.5 py-1 rounded-lg text-xs font-bold text-slate-100 shadow-md backdrop-blur-sm">
-            <MathRenderer text={title} inline />
-          </div>
-        </div>
-      )}
-
-      {/* Legend & Equation Badges */}
-      <div className="absolute top-3 left-3 z-20 flex flex-col gap-1.5 max-w-[65%] pointer-events-none">
-        {displayFunctions.map(
-          (fn, idx) =>
-            fn.equation && (
-              <div
-                key={idx}
-                className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-3 py-1.5 rounded-lg shadow-md backdrop-blur-sm"
-              >
-                <div
-                  style={{ backgroundColor: fn.color || color }}
-                  className="h-2.5 w-2.5 rounded-full ring-2 ring-white/10"
-                />
-                <div className="text-xs sm:text-sm font-semibold text-slate-100">
-                  <MathRenderer text={fn.equation} inline />
-                </div>
-              </div>
-            )
-        )}
-      </div>
-
-      {/* Properties HUD */}
-      {properties && properties.length > 0 && (
-        <div className="absolute bottom-4 right-4 z-20 flex flex-col gap-1 bg-slate-900/90 border border-slate-800 p-2.5 rounded-xl shadow-md backdrop-blur-sm pointer-events-none">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-            {properties.map((prop, idx) => (
-              <div key={idx} className="flex flex-col">
-                <span className="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                  <MathRenderer text={prop.name} inline />
-                </span>
-                <span className="text-xs sm:text-sm font-bold text-slate-100">
-                  <MathRenderer text={prop.value} inline />
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto overflow-visible relative z-10">
-        {/* Subtle Background Grid */}
-        {xTicks.map((t) => (
-          <line
-            key={`grid-x-${t.val}`}
-            x1={scaleX(t.val)}
-            y1={padding}
-            x2={scaleX(t.val)}
-            y2={height - padding}
-            stroke="#334155"
-            strokeWidth="0.7"
-            strokeDasharray="2,3"
-            strokeOpacity="0.4"
-          />
-        ))}
-        {yTicks.map((t) => (
-          <line
-            key={`grid-y-${t.val}`}
-            x1={padding}
-            y1={scaleY(t.val)}
-            x2={width - padding}
-            y2={scaleY(t.val)}
-            stroke="#334155"
-            strokeWidth="0.7"
-            strokeDasharray="2,3"
-            strokeOpacity="0.4"
-          />
-        ))}
-
-        {/* Coordinate Axes */}
-        <line
-          x1={scaleX(minX)}
-          y1={scaleY(0)}
-          x2={scaleX(maxX)}
-          y2={scaleY(0)}
-          stroke="#94a3b8"
-          strokeWidth="1.2"
-          strokeLinecap="round"
-        />
-        <line
-          x1={scaleX(0)}
-          y1={scaleY(minY)}
-          x2={scaleX(0)}
-          y2={scaleY(maxY)}
-          stroke="#94a3b8"
-          strokeWidth="1.2"
-          strokeLinecap="round"
-        />
-
-        {/* Axis Ticks and Numeric Labels */}
-        {xTicks.map((t) => (
-          <text
-            key={`xt-${t.val}`}
-            x={scaleX(t.val)}
-            y={Math.min(height - 12, Math.max(20, scaleY(0) + 16))}
-            fontSize={compact ? "11" : "12"}
-            fill="#94a3b8"
-            textAnchor="middle"
-            fontWeight="600"
-            fontFamily="inherit"
-          >
-            {t.label}
-          </text>
-        ))}
-        {yTicks.map((t) => (
-          <text
-            key={`yt-${t.val}`}
-            x={Math.max(16, scaleX(0) - 8)}
-            y={scaleY(t.val) + 3}
-            fontSize={compact ? "11" : "12"}
-            fill="#94a3b8"
-            textAnchor="end"
-            fontWeight="600"
-            fontFamily="inherit"
-          >
-            {t.label}
-          </text>
-        ))}
-
-        {/* Asymptotes (Dashed Lines) */}
-        {asymptotes.map((asymp, idx) => {
-          const numVal = typeof asymp.value === "number" ? asymp.value : parseFloat(asymp.value);
-          if (isNaN(numVal)) return null;
-
-          if (asymp.type === "vertical") {
-            const sx = scaleX(numVal);
-            return (
-              <g key={`asymp-v-${idx}`}>
-                <line
-                  x1={sx}
-                  y1={padding}
-                  x2={sx}
-                  y2={height - padding}
-                  stroke="#ef4444"
-                  strokeWidth="1.5"
-                  strokeDasharray="6,4"
-                  strokeOpacity="0.8"
-                />
-                {asymp.label && (
-                  <text x={sx + 4} y={padding + 12} fontSize="10" fill="#ef4444" fontWeight="bold">
-                    {asymp.label}
-                  </text>
-                )}
-              </g>
-            );
-          } else if (asymp.type === "horizontal") {
-            const sy = scaleY(numVal);
-            return (
-              <g key={`asymp-h-${idx}`}>
-                <line
-                  x1={padding}
-                  y1={sy}
-                  x2={width - padding}
-                  y2={sy}
-                  stroke="#ef4444"
-                  strokeWidth="1.5"
-                  strokeDasharray="6,4"
-                  strokeOpacity="0.8"
-                />
-                {asymp.label && (
-                  <text x={width - padding - 40} y={sy - 4} fontSize="10" fill="#ef4444" fontWeight="bold">
-                    {asymp.label}
-                  </text>
-                )}
-              </g>
-            );
-          }
-          return null;
-        })}
-
-        {/* Line of Symmetry (Dashed Vertical Line with Label) */}
-        {symmetryAxis !== undefined && !isNaN(symmetryAxis) && (
-          <g key="symmetry-axis-line">
-            <line
-              x1={scaleX(symmetryAxis)}
-              y1={padding - 6}
-              x2={scaleX(symmetryAxis)}
-              y2={height - padding + 6}
-              stroke="#f43f5e"
-              strokeWidth={compact ? "2" : "2.5"}
-              strokeDasharray="5,4"
-              strokeOpacity="0.95"
-            />
-            <text
-              x={scaleX(symmetryAxis) + 6}
-              y={padding + 8}
-              fontSize={compact ? "9" : "10"}
-              fill="#f43f5e"
-              fontWeight="bold"
-              fontFamily="inherit"
-            >
-              Axis of Symmetry (x = {symmetryAxis})
-            </text>
-          </g>
-        )}
-
-        {/* Function Curves */}
-        {displayFunctions.map((fn, idx) => {
-          const validPoints =
-            fn.points?.filter((p) => typeof p.x === "number" && !isNaN(p.x) && typeof p.y === "number" && !isNaN(p.y)) ||
-            [];
-
-          if (validPoints.length === 1) {
-            return (
-              <circle
-                key={idx}
-                cx={scaleX(validPoints[0].x)}
-                cy={scaleY(validPoints[0].y)}
-                r="5"
-                fill={fn.color || color}
-                className="drop-shadow-md"
-              />
-            );
-          }
-
-          // Construct segments without jumping across vertical asymptotes
-          const segments: string[] = [];
-          let currentSegment = "";
-          const yThreshold = (maxY - minY) * 1.5;
-          let prevPoint: Point | null = null;
-
-          validPoints.forEach((p) => {
-            const sx = scaleX(p.x);
-            const sy = scaleY(p.y);
-
-            if (!prevPoint) {
-              currentSegment = `M ${sx} ${sy}`;
-            } else {
-              const yJump = Math.abs(p.y - prevPoint.y);
-              if (yJump > yThreshold) {
-                // Terminate segment, start new
-                if (currentSegment) segments.push(currentSegment);
-                currentSegment = `M ${sx} ${sy}`;
-              } else {
-                currentSegment += ` L ${sx} ${sy}`;
-              }
-            }
-            prevPoint = p;
-          });
-          if (currentSegment) segments.push(currentSegment);
-
-          return segments.map((d, segIdx) => (
-            <path
-              key={`${idx}-seg-${segIdx}`}
-              d={d}
-              fill="none"
-              stroke={fn.color || color}
-              strokeWidth={idx === 0 && displayFunctions.length > 1 ? "2.5" : "3.5"}
-              strokeDasharray={idx === 0 && displayFunctions.length > 1 ? "6,4" : "0"}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="drop-shadow-sm"
-            />
-          ));
-        })}
-
-        {/* Holes (Removable Discontinuities) */}
-        {holes.map((hole, idx) => (
-          <circle
-            key={`hole-${idx}`}
-            cx={scaleX(hole.x)}
-            cy={scaleY(hole.y)}
-            r="4.5"
-            fill="#0f172a"
-            stroke="#ef4444"
-            strokeWidth="2"
-          />
-        ))}
+    <figure className={cn("math-graph graph-card", compact && "graph-card-compact")} data-compact={compact}>
+      {(title || reconstruction === "approximate") && <figcaption className="graph-card-heading"><span><MathRenderer text={title || "Graph"} inline /></span>{reconstruction === "approximate" && <span className="graph-approximation">Approximate sketch</span>}</figcaption>}
+      {displayFunctions.some((fn) => fn.equation) && <div className="graph-legend">{displayFunctions.map((fn, index) => fn.equation && <span key={index}><i style={{ backgroundColor: fn.color || color }} /><MathRenderer text={fn.equation} inline /></span>)}</div>}
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={description || title || graph.equation || "Coordinate graph"} className={cn("graph-svg", onPlotPoint && "graph-svg-interactive")} onClick={onPlotPoint ? (event) => {
+        const svg = event.currentTarget;
+        const transform = svg.getScreenCTM();
+        if (!transform) return;
+        const position = new DOMPoint(event.clientX, event.clientY).matrixTransform(transform.inverse());
+        if (position.x < padding || position.x > width - padding || position.y < padding || position.y > height - padding) return;
+        onPlotPoint({ x: Math.round((minX + (position.x - padding) / (width - 2 * padding) * (maxX - minX)) * 10) / 10, y: Math.round((minY + (height - padding - position.y) / (height - 2 * padding) * (maxY - minY)) * 10) / 10 });
+      } : undefined}>
+        <title>{title || "Coordinate graph"}</title>
+        {description && <desc>{description}</desc>}
+        <defs><clipPath id={clipId}><rect x={padding} y={padding} width={width - 2 * padding} height={height - 2 * padding} /></clipPath></defs>
+        {xTicks.map((x) => <line key={`gx${x}`} x1={scaleX(x)} y1={padding} x2={scaleX(x)} y2={height - padding} stroke="#334155" strokeWidth="0.7" />)}
+        {yTicks.map((y) => <line key={`gy${y}`} x1={padding} y1={scaleY(y)} x2={width - padding} y2={scaleY(y)} stroke="#334155" strokeWidth="0.7" />)}
+        <line x1={padding} y1={axisY} x2={width - padding + 8} y2={axisY} stroke="#94a3b8" strokeWidth="1.5" />
+        <line x1={axisX} y1={height - padding} x2={axisX} y2={padding - 8} stroke="#94a3b8" strokeWidth="1.5" />
+        <path d={`M ${width - padding + 8} ${axisY} l -7 -4 m 7 4 l -7 4 M ${axisX} ${padding - 8} l -4 7 m 4 -7 l 4 7`} fill="none" stroke="#94a3b8" />
+        <text x={width - padding + 18} y={axisY + 5} fill="#cbd5e1" fontSize="14">x</text>
+        <text x={axisX + 10} y={padding - 10} fill="#cbd5e1" fontSize="14">y</text>
+        {xTicks.filter((x) => x !== 0).map((x) => <text key={`tx${x}`} x={scaleX(x)} y={Math.min(height - 12, axisY + 18)} textAnchor="middle" fill="#94a3b8" fontSize="12">{tickLabel(x)}</text>)}
+        {yTicks.map((y) => <text key={`ty${y}`} x={Math.max(24, axisX - 9)} y={scaleY(y) + 4} textAnchor="end" fill="#94a3b8" fontSize="12">{y}</text>)}
+        <g clipPath={`url(#${clipId})`}>
+          {asymptotes.map((item, index) => {
+            const value = Number(item.value);
+            let x1 = padding, x2 = width - padding, y1 = 0, y2 = 0;
+            if (item.type === "vertical" && Number.isFinite(value)) { x1 = x2 = scaleX(value); y1 = padding; y2 = height - padding; }
+            else if (item.type === "horizontal" && Number.isFinite(value)) { y1 = y2 = scaleY(value); }
+            else if (item.type === "oblique") {
+              try { const fn = compileGraphExpression(String(item.value)); y1 = scaleY(fn.evaluate({ x: minX })); y2 = scaleY(fn.evaluate({ x: maxX })); if (!Number.isFinite(y1) || !Number.isFinite(y2)) return null; } catch { return null; }
+            } else return null;
+            return <g key={`a${index}`}><line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#fbbf24" strokeWidth="1.4" strokeDasharray="6 5" />{item.label && <text x={item.type === "vertical" ? x1 + 5 : padding + 5} y={item.type === "vertical" ? padding + 15 : y1 - 5} fill="#fbbf24" fontSize="11">{item.label}</text>}</g>;
+          })}
+          {symmetryAxis !== undefined && <line x1={scaleX(symmetryAxis)} y1={padding} x2={scaleX(symmetryAxis)} y2={height - padding} stroke="#c084fc" strokeWidth="1.5" strokeDasharray="4 5" />}
+          {displayFunctions.flatMap((fn, index) => fn.segments.map((segment, segmentIndex) => segment.length === 1
+            ? <circle key={`${index}-${segmentIndex}`} cx={scaleX(segment[0].x)} cy={scaleY(segment[0].y)} r="4" fill={fn.color || color} />
+            : <path key={`${index}-${segmentIndex}`} d={segment.map((point, i) => `${i ? "L" : "M"} ${scaleX(point.x)} ${scaleY(point.y)}`).join(" ")} fill="none" stroke={fn.color || color} strokeWidth="3" strokeDasharray={fn.dashed ? "6 4" : undefined} strokeLinecap="round" strokeLinejoin="round" />))}
+          {points.map((point, index) => <g key={`p${index}`}><circle cx={scaleX(point.x)} cy={scaleY(point.y)} r="4.5" fill={color} stroke="#0f172a" strokeWidth="1.5" />{point.label && <text x={scaleX(point.x) + 8} y={scaleY(point.y) - 9} fill="#f1f5f9" fontSize="13" stroke="#0f172a" strokeWidth="3" paintOrder="stroke">{point.label}</text>}</g>)}
+          {holes.map((point, index) => <circle key={`h${index}`} cx={scaleX(point.x)} cy={scaleY(point.y)} r="5" fill="#0f172a" stroke={color} strokeWidth="2" />)}
+        </g>
       </svg>
-    </div>
+      {properties.length > 0 && <dl className="graph-properties">{properties.map((prop, index) => <div key={index}><dt><MathRenderer text={prop.name} inline /></dt><dd><MathRenderer text={prop.value} inline /></dd></div>)}</dl>}
+    </figure>
   );
-}
-
+});

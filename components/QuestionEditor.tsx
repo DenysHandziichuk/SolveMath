@@ -3,17 +3,23 @@
 import { useEffect, useRef, useState } from "react";
 import { Check } from "lucide-react";
 import { MathRenderer } from "./MathRenderer";
+import { TableEditor } from "./TableEditor";
+import type { SlideTable } from "@/lib/slide-tables";
 
 interface QuestionEditorProps {
   id: string;
   label: string;
   text: string;
-  onSave: (text: string) => void;
+  visualContext?: string;
+  tables?: SlideTable[];
+  onSave: (text: string, visualContext?: string, tables?: SlideTable[]) => void;
   onCancel: () => void;
 }
 
-export function QuestionEditor({ id, label, text, onSave, onCancel }: QuestionEditorProps) {
+export function QuestionEditor({ id, label, text, visualContext, tables, onSave, onCancel }: QuestionEditorProps) {
   const [draft, setDraft] = useState(text);
+  const [visualDraft, setVisualDraft] = useState(visualContext || "");
+  const [tableDraft, setTableDraft] = useState(tables || []);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isEmpty = draft.trim().length === 0;
 
@@ -28,7 +34,7 @@ export function QuestionEditor({ id, label, text, onSave, onCancel }: QuestionEd
       className="studio-form space-y-4"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!isEmpty) onSave(draft.trim());
+        if (!isEmpty) onSave(draft.trim(), visualDraft.trim() || undefined, tableDraft);
       }}
       onKeyDown={(event) => {
         if (event.key === "Escape" && !event.nativeEvent.isComposing) {
@@ -62,6 +68,10 @@ export function QuestionEditor({ id, label, text, onSave, onCancel }: QuestionEd
           </p>
         )}
       </div>
+
+      {visualContext !== undefined && <label className="studio-label"><span>Graph observations & table values</span><textarea value={visualDraft} onChange={(event) => setVisualDraft(event.target.value)} rows={6} /><span className="studio-help">Preserve graph labels, intervals, and every table cell. Say when a value is approximate or unreadable.</span></label>}
+
+      <details className="question-table-editor" open={tables?.length ? true : undefined}><summary>Edit or add tables</summary><TableEditor tables={tableDraft} onChange={setTableDraft} /></details>
 
       {!isEmpty && (
         <div className="min-w-0 space-y-2">

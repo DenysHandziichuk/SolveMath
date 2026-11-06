@@ -10,7 +10,7 @@ export function Header() {
         SolveMath
       </h1>
       <p className="mt-4 text-lg text-muted-foreground max-w-md">
-        Upload a screenshot of your math problems and let AI guide you through the easiest ones.
+        Create slides for a math problem, or start with a blank presentation.
       </p>
     </header>
   );

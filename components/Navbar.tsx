@@ -10,6 +10,7 @@ export function Navbar() {
 
   return (
     <header className="landing-nav">
+      <a href="#main-content" className="skip-link">Skip to content</a>
       <nav className="landing-container" aria-label="Main navigation">
         <Link href="/" className="landing-wordmark" aria-label="SolveMath home">SolveMath<span>.</span></Link>
         <div className="landing-nav-links"><Link href="/#how-it-works">How it works</Link></div>

@@ -17,6 +17,12 @@ import {
   VolumeX,
   Type,
   Pencil,
+  Plus,
+  Trash2,
+  ArrowUp,
+  ArrowDown,
+  ChartNoAxesCombined,
+  Table2,
 } from "lucide-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { MathRenderer } from "./MathRenderer";
@@ -27,46 +33,12 @@ import { SlideDrawing } from "./SlideDrawing";
 import { DrawingTools } from "./DrawingTools";
 import { SlideEditor } from "./SlideEditor";
 import { SlideStage } from "./SlideStage";
+import { SlideTables } from "./MathTable";
 import type { DrawingStroke, DrawingTool } from "@/lib/slide-drawing";
 
-interface GraphFunction {
-  points?: { x: number; y: number }[];
-  mathjs?: string;
-  color?: string;
-  equation?: string;
-}
-
-export interface GraphData {
-  title?: string;
-  type?: string;
-  equation?: string;
-  isRadian?: boolean;
-  points?: { x: number; y: number }[];
-  functions?: GraphFunction[];
-  asymptotes?: { type: "vertical" | "horizontal" | "oblique"; value: number | string; label?: string }[];
-  symmetryAxis?: number;
-  holes?: { x: number; y: number }[];
-  properties?: { name: string; value: string }[];
-  bounds?: { minX: number; maxX: number; minY: number; maxY: number };
-}
-
-export interface Slide {
-  title: string;
-  subtitle?: string;
-  content: string;
-  notes: string;
-  type?: string;
-  graphData?: GraphData;
-  graphs?: GraphData[];
-  drawings?: DrawingStroke[];
-}
-
-export interface Solution {
-  explanation: string;
-  slides: Slide[];
-  graphData?: GraphData;
-  graphs?: GraphData[];
-}
+import { createBlankSlide, createManualPresentation, getSlideGraphs, getSlideTables, hasGraphLayout, hasTableLayout, SLIDE_TEMPLATES, type Slide, type Solution, type SlideTemplate } from "@/lib/presentation";
+export type { Slide, Solution } from "@/lib/presentation";
+export type { GraphData } from "@/lib/graph-data";
 
 export interface SolutionDisplayProps {
   solution: Solution;
@@ -122,6 +94,8 @@ const THEMES = {
   },
 };
 
+const EMPTY_DRAWINGS: DrawingStroke[] = [];
+
 type ThemeKey = keyof typeof THEMES;
 
 export type TextScale = "compact" | "standard" | "large" | "xlarge";
@@ -163,6 +137,9 @@ export function SolutionDisplay({ solution, onReset, onSolutionChange }: Solutio
   const reduceMotion = useReducedMotion();
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [controlMessage, setControlMessage] = useState("");
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectionVersion = useRef(0);
   const [sidebarWidth, setSidebarWidth] = useState(420);
   const [isResizing, setIsResizing] = useState(false);
   const [theme, setTheme] = useState<ThemeKey>("slate");
@@ -180,18 +157,25 @@ export function SolutionDisplay({ solution, onReset, onSolutionChange }: Solutio
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(true);
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(() => solution.creationMode === "manual" && !solution.slides[0]?.title && !solution.slides[0]?.content);
+  const [editorDirty, setEditorDirty] = useState(false);
+  const [editorSection, setEditorSection] = useState<"text" | "graphs" | "tables">("text");
+  const [slideTemplate, setSlideTemplate] = useState<SlideTemplate>("text");
+  const [deletedDeck, setDeletedDeck] = useState<{ solution: Solution; index: number } | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawingTool, setDrawingTool] = useState<DrawingTool>("pen");
   const [inkColor, setInkColor] = useState("#3b82f6");
   const [brushWidth, setBrushWidth] = useState(6);
   const [showFullscreenTools, setShowFullscreenTools] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [graphComparisonView, setGraphComparisonView] = useState<"dual" | "a" | "b">("dual");
+  const [graphComparisonView, setGraphComparisonView] = useState<number | null>(null);
 
   const selectSlide = useCallback((index: number) => {
+    selectionVersion.current++;
+    setCopied(false);
+    setControlMessage("");
     setCurrentSlideIndex(index);
-    setGraphComparisonView("dual");
+    setGraphComparisonView(null);
     window.speechSynthesis?.cancel();
     setIsSpeaking(false);
   }, []);
@@ -222,10 +206,10 @@ export function SolutionDisplay({ solution, onReset, onSolutionChange }: Solutio
 
   const activeTheme = THEMES[theme];
   const defaultSlide: Slide = {
-    title: "Problem Statement",
-    subtitle: "Overview",
-    content: solution.explanation || "Problem Analysis and Resolution",
-    notes: "Review the problem formulation and derived results.",
+    title: "Problem",
+    subtitle: "",
+    content: solution.explanation || "",
+    notes: "",
     type: "intro",
   };
   const currentSlide =
@@ -236,6 +220,7 @@ export function SolutionDisplay({ solution, onReset, onSolutionChange }: Solutio
   const updateSlide = useCallback((slide: Slide) => {
     const slides = solution.slides.length ? solution.slides.map((existing, index) => index === currentSlideIndex ? slide : existing) : [slide];
     onSolutionChange({ ...solution, slides });
+    setDeletedDeck(null);
   }, [solution, currentSlideIndex, onSolutionChange]);
 
   const addStroke = (stroke: DrawingStroke) => {
@@ -247,38 +232,51 @@ export function SolutionDisplay({ solution, onReset, onSolutionChange }: Solutio
     updateSlide({ ...currentSlide, drawings: currentSlide.drawings.slice(0, -1) });
   }, [currentSlide, updateSlide]);
 
-  // Determine active graphs: prioritize slide-level graphs, then solution-level graphs
-  const slideGraphs: GraphData[] =
-    currentSlide.graphs ||
-    (currentSlide.graphData ? [currentSlide.graphData] : []);
+  const activeGraphs = getSlideGraphs(currentSlide, solution);
+  const activeTables = getSlideTables(currentSlide);
+  const graphLayout = currentSlide.layout || (activeGraphs.length > 1 ? "graphs" : "split");
+  const showGraphLayout = hasGraphLayout(currentSlide.layout) || (!currentSlide.layout && activeGraphs.length > 0);
+  const showTableLayout = hasTableLayout(currentSlide.layout) || (!currentSlide.layout && activeTables.length > 0);
+  const tableLayout = currentSlide.layout === "table-graph" || (!currentSlide.layout && activeGraphs.length) ? "table-graph" : "table";
 
-  const solutionGraphs: GraphData[] =
-    solution.graphs ||
-    (solution.graphData ? [solution.graphData] : []);
+  const openEditor = (section: "text" | "graphs" | "tables" = "text") => {
+    setIsDrawing(false);
+    setEditorSection(section);
+    setEditorDirty(false);
+    setIsEditing(true);
+  };
 
-  // Slide types that are explicitly non-graph slides
-  const isExplicitNonGraphSlide =
-    currentSlide.type === "intro" ||
-    currentSlide.type === "solution" ||
-    currentSlide.type === "concept" ||
-    currentSlide.type === "derivation" ||
-    currentSlide.type === "summary" ||
-    currentSlide.type === "conclusion" ||
-    currentSlideIndex === 0;
+  const addSlide = (duplicate = false) => {
+    const slides = [...solution.slides];
+    slides.splice(currentSlideIndex + 1, 0, duplicate ? structuredClone(currentSlide) : createBlankSlide(slideTemplate));
+    onSolutionChange({ ...solution, slides });
+    setDeletedDeck(null);
+    selectSlide(currentSlideIndex + 1);
+    if (!duplicate) openEditor(hasTableLayout(slideTemplate) ? "tables" : hasGraphLayout(slideTemplate) ? "graphs" : "text");
+  };
 
-  // A slide is a graph slide if it has its own graphs, or is marked as graph/evidence
-  const isGraphSlideType =
-    currentSlide.type === "graph" ||
-    currentSlide.type === "evidence" ||
-    currentSlide.type === "comparison" ||
-    Boolean(currentSlide.title && /evidence|graph|visual|plot|coordinate/i.test(currentSlide.title));
+  const moveSlide = (direction: -1 | 1) => {
+    const target = currentSlideIndex + direction;
+    if (target < 0 || target >= solution.slides.length) return;
+    const slides = [...solution.slides];
+    [slides[currentSlideIndex], slides[target]] = [slides[target], slides[currentSlideIndex]];
+    onSolutionChange({ ...solution, slides });
+    setDeletedDeck(null);
+    selectSlide(target);
+  };
 
-  const isGraphSlide =
-    Boolean(slideGraphs.length) ||
-    (!isExplicitNonGraphSlide && isGraphSlideType && Boolean(solutionGraphs.length));
+  const slideContent = (className: string, text = currentSlide.content, placeholder = "Click to add your text or equations", includeVisualContext = true) => <div className={className}>
+    {text ? <MathRenderer text={text} /> : !isFullscreen && <button type="button" disabled={isEditing} onClick={() => openEditor()} className="slide-placeholder slide-text-placeholder">{placeholder}</button>}
+    {includeVisualContext && currentSlide.visualContext && <div className="slide-visual-context"><MathRenderer text={currentSlide.visualContext} /></div>}
+  </div>;
 
-  const activeGraphs = slideGraphs.length > 0 ? slideGraphs : (isGraphSlide ? solutionGraphs : []);
-  const isMultiGraph = activeGraphs.length >= 2;
+  const graphPanel = () => <div className="slide-graphs-panel">
+    {activeGraphs.length > 1 && <nav className="slide-graph-views" aria-label="Graph views"><button type="button" aria-pressed={graphComparisonView === null} onClick={() => setGraphComparisonView(null)}>All graphs</button>{activeGraphs.map((graph, index) => <button key={index} type="button" aria-pressed={graphComparisonView === index} onClick={() => setGraphComparisonView(index)}>{graph.title || `Graph ${index + 1}`}</button>)}</nav>}
+    {activeGraphs.length ? <div className="slide-graph-grid" data-count={graphComparisonView === null ? activeGraphs.length : 1}>
+      {activeGraphs.map((graph, index) => (graphComparisonView === null || graphComparisonView === index) && <MathGraph key={index} {...graph} title={graph.title || (activeGraphs.length > 1 ? `Graph ${index + 1}` : undefined)} color={activeTheme.accent} compact={graphComparisonView === null && activeGraphs.length > 1} />)}
+    </div> : !isFullscreen && <button type="button" disabled={isEditing} className="slide-placeholder slide-graph-placeholder" onClick={() => openEditor("graphs")}><ChartNoAxesCombined size={52} />Click to add a graph or image<span>Build a graph, use Desmos, or upload a screenshot</span></button>}
+  </div>;
+
   // Presentation Timer
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
@@ -298,13 +296,22 @@ export function SolutionDisplay({ solution, onReset, onSolutionChange }: Solutio
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   };
 
-  const toggleFullscreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-      presentationAreaRef.current?.requestFullscreen?.().catch(() => {});
-    } else {
-      document.exitFullscreen?.().catch(() => {});
-    }
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (!document.fullscreenElement) {
+        if (!presentationAreaRef.current?.requestFullscreen) { setControlMessage("Fullscreen isn’t available in this browser. You can still use the slides here."); return; }
+        await presentationAreaRef.current.requestFullscreen();
+      } else await document.exitFullscreen();
+      setControlMessage("");
+    } catch { setControlMessage("Fullscreen couldn’t open. Try your browser’s fullscreen controls."); }
   }, []);
+
+  useEffect(() => {
+    if (!editorDirty) return;
+    const beforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [editorDirty]);
 
   // Keyboard navigation (Arrow keys, Spacebar, F for fullscreen)
   useEffect(() => {
@@ -368,8 +375,8 @@ export function SolutionDisplay({ solution, onReset, onSolutionChange }: Solutio
     (e: MouseEvent) => {
       if (isResizing) {
         const newWidth = window.innerWidth - e.clientX;
-        const minWidth = 380;
-        const maxWidth = window.innerWidth * 0.85;
+        const minWidth = 340;
+        const maxWidth = Math.min(1000, window.innerWidth * 0.65);
         if (newWidth >= minWidth && newWidth <= maxWidth) {
           setSidebarWidth(newWidth);
         }
@@ -426,15 +433,23 @@ export function SolutionDisplay({ solution, onReset, onSolutionChange }: Solutio
     return () => window.speechSynthesis?.cancel();
   }, []);
 
-  const copyNote = () => {
-    if (!currentSlide) return;
-    navigator.clipboard.writeText(currentSlide.notes);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
+
+  const copyNote = async () => {
+    const version = selectionVersion.current;
+    try {
+      await navigator.clipboard.writeText(currentSlide.notes);
+      if (version !== selectionVersion.current) return;
+      setCopied(true);
+      setControlMessage("");
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 2000);
+    } catch { setControlMessage("The notes couldn’t be copied. Select the text in the notes panel and copy it manually."); }
   };
 
   return (
-    <div className="presentation-workspace fixed inset-0 z-50 flex h-[100dvh] w-full flex-col overflow-hidden lg:flex-row">
+    <main aria-label="Presentation workspace" className="presentation-workspace fixed inset-0 z-50 flex h-[100dvh] w-full flex-col overflow-hidden lg:flex-row">
+      <a href="#presenter-controls" className="skip-link">Skip to presenter controls</a>
       {/* ========================================================================= */}
       {/* LEFT PANEL: The 16:9 Presentation Stage (Strict 1920x1080 Aspect Ratio) */}
       {/* ========================================================================= */}
@@ -443,19 +458,20 @@ export function SolutionDisplay({ solution, onReset, onSolutionChange }: Solutio
         id="presentation-area"
         className="presentation-area relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden select-none"
       >
-        <div className="presentation-topbar"><Link href="/" className="landing-wordmark">SolveMath<span>.</span></Link><span>Lesson workspace</span><button type="button" onClick={toggleFullscreen} disabled={isEditing} className="studio-secondary-button"><Maximize2 size={14} aria-hidden="true" />Present</button></div>
+        <div className="presentation-topbar"><Link href="/" onClick={(event) => { if (editorDirty) { event.preventDefault(); setControlMessage("Save or cancel your slide changes before leaving the editor."); } }} className="landing-wordmark">SolveMath<span>.</span></Link><span>{solution.creationMode === "manual" ? "Manual presentation" : "Lesson workspace"}</span><button type="button" onClick={toggleFullscreen} disabled={isEditing} className="studio-secondary-button"><Maximize2 size={14} aria-hidden="true" />Present</button></div>
         {/* PRESENTATION STAGE: Hard-locked to 16:9 aspect-video */}
         <SlideStage
           className={cn(
             "relative aspect-video w-full rounded-lg border overflow-hidden",
             activeTheme.slideBg,
-            activeTheme.slideBorder
+            activeTheme.slideBorder,
+            theme === "paper" || theme === "whiteboard" ? "slide-light" : "slide-dark"
           )}
         >
           {/* Slide Header */}
-          <div className="relative z-20 flex items-center justify-between gap-2 pb-3 border-b border-white/10 shrink-0">
+          <div className="presentation-slide-header relative z-20 flex items-center justify-between gap-2 pb-3 border-b border-white/10 shrink-0">
             <div className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-zinc-400 truncate max-w-[60%]">
-              {currentSlide.subtitle ? (
+              {currentSlide.subtitle && currentSlide.layout !== "title" ? (
                 <MathRenderer text={currentSlide.subtitle} inline />
               ) : (
                 <span>Slide {currentSlideIndex + 1}</span>
@@ -464,7 +480,7 @@ export function SolutionDisplay({ solution, onReset, onSolutionChange }: Solutio
 
             <div className="flex items-center gap-2 sm:gap-3">
               {/* Quick Text Size Adjuster on the slide */}
-              <div className="flex items-center border border-white/10 rounded-lg bg-black/30 backdrop-blur-sm p-0.5 text-xs text-zinc-300">
+              <div className="slide-header-size-controls flex items-center border border-white/10 rounded-lg bg-black/30 backdrop-blur-sm p-0.5 text-xs text-zinc-300">
                 <button
                   onClick={() => adjustTextScale(-1)}
                   title="Smaller text (- / _)"
@@ -511,166 +527,42 @@ export function SolutionDisplay({ solution, onReset, onSolutionChange }: Solutio
                 animate={{ opacity: 1, y: 0 }}
                 exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -6 }}
                 transition={{ duration: reduceMotion ? 0 : 0.2 }}
-                className="w-full flex flex-col flex-1 justify-start h-full overflow-hidden min-h-0"
+                className="slide-body-layout w-full flex flex-col flex-1 justify-start h-full overflow-hidden min-h-0"
+                data-layout={currentSlide.layout || "auto"}
               >
                 <h1 className={cn(getTitleClass(textScale), "font-black tracking-tight mb-4 sm:mb-6 shrink-0", activeTheme.text)}>
-                  <MathRenderer text={currentSlide.title} inline />
+                  {currentSlide.title ? <MathRenderer text={currentSlide.title} inline /> : !isFullscreen && <button type="button" disabled={isEditing} onClick={() => openEditor()} className="slide-placeholder slide-title-placeholder">Click to add a title</button>}
                 </h1>
 
-                {/* Split view when graph slide */}
-                {isGraphSlide && activeGraphs.length > 0 ? (
-                  isMultiGraph ? (
-                    <div className="grid grid-cols-12 gap-4 items-stretch flex-1 min-h-0 overflow-hidden">
-                      {/* Left: Mathematical Explanation */}
-                      <div className={cn("col-span-4 font-normal leading-relaxed overflow-y-auto max-h-full pr-2 flex flex-col justify-between", getSplitDualContentClass(textScale), activeTheme.subtext)}>
-                        <div className="space-y-3">
-                          <MathRenderer text={currentSlide.content} />
-                        </div>
-                        {/* Comparison Switcher Controls */}
-                        <div className="pt-2 mt-auto border-t border-white/10 flex items-center gap-1.5 shrink-0 select-none">
-                          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mr-1">View:</span>
-                          <button
-                            onClick={() => setGraphComparisonView("dual")}
-                            className={cn(
-                              "px-2.5 py-1 rounded-lg text-xs font-semibold transition-all",
-                              graphComparisonView === "dual"
-                                ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 ring-1 ring-blue-400"
-                                : "bg-slate-800/80 text-slate-300 hover:bg-slate-700"
-                            )}
-                          >
-                            Dual View
-                          </button>
-                          <button
-                            onClick={() => setGraphComparisonView("a")}
-                            className={cn(
-                              "px-2.5 py-1 rounded-lg text-xs font-semibold transition-all",
-                              graphComparisonView === "a"
-                                ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 ring-1 ring-blue-400"
-                                : "bg-slate-800/80 text-slate-300 hover:bg-slate-700"
-                            )}
-                          >
-                            {activeGraphs[0]?.title ? "Graph (a)" : "Graph A"}
-                          </button>
-                          <button
-                            onClick={() => setGraphComparisonView("b")}
-                            className={cn(
-                              "px-2.5 py-1 rounded-lg text-xs font-semibold transition-all",
-                              graphComparisonView === "b"
-                                ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 ring-1 ring-blue-400"
-                                : "bg-slate-800/80 text-slate-300 hover:bg-slate-700"
-                            )}
-                          >
-                            {activeGraphs[1]?.title ? "Graph (b)" : "Graph B"}
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Right: Graph Canvas Panel (Dual side-by-side or single focused) */}
-                      <div className="col-span-8 flex items-center justify-center h-full max-h-full overflow-hidden">
-                        {graphComparisonView === "dual" ? (
-                          <div className="grid grid-cols-2 gap-3 w-full h-full items-center justify-center">
-                            <MathGraph
-                              title={activeGraphs[0].title || "Case (a)"}
-                              functions={activeGraphs[0].functions}
-                              points={activeGraphs[0].points}
-                              properties={activeGraphs[0].properties}
-                              bounds={activeGraphs[0].bounds}
-                              asymptotes={activeGraphs[0].asymptotes}
-                              symmetryAxis={activeGraphs[0].symmetryAxis}
-                              holes={activeGraphs[0].holes}
-                              isRadian={activeGraphs[0].isRadian}
-                              color="#38bdf8"
-                              equation={activeGraphs[0].equation}
-                              compact={true}
-                            />
-                            <MathGraph
-                              title={activeGraphs[1].title || "Case (b)"}
-                              functions={activeGraphs[1].functions}
-                              points={activeGraphs[1].points}
-                              properties={activeGraphs[1].properties}
-                              bounds={activeGraphs[1].bounds}
-                              asymptotes={activeGraphs[1].asymptotes}
-                              symmetryAxis={activeGraphs[1].symmetryAxis}
-                              holes={activeGraphs[1].holes}
-                              isRadian={activeGraphs[1].isRadian}
-                              color="#10b981"
-                              equation={activeGraphs[1].equation}
-                              compact={true}
-                            />
-                          </div>
-                        ) : graphComparisonView === "a" ? (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <MathGraph
-                              title={activeGraphs[0].title || "Case (a)"}
-                              functions={activeGraphs[0].functions}
-                              points={activeGraphs[0].points}
-                              properties={activeGraphs[0].properties}
-                              bounds={activeGraphs[0].bounds}
-                              asymptotes={activeGraphs[0].asymptotes}
-                              symmetryAxis={activeGraphs[0].symmetryAxis}
-                              holes={activeGraphs[0].holes}
-                              isRadian={activeGraphs[0].isRadian}
-                              color="#38bdf8"
-                              equation={activeGraphs[0].equation}
-                            />
-                          </div>
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <MathGraph
-                              title={activeGraphs[1].title || "Case (b)"}
-                              functions={activeGraphs[1].functions}
-                              points={activeGraphs[1].points}
-                              properties={activeGraphs[1].properties}
-                              bounds={activeGraphs[1].bounds}
-                              asymptotes={activeGraphs[1].asymptotes}
-                              symmetryAxis={activeGraphs[1].symmetryAxis}
-                              holes={activeGraphs[1].holes}
-                              isRadian={activeGraphs[1].isRadian}
-                              color="#10b981"
-                              equation={activeGraphs[1].equation}
-                            />
-                          </div>
-                        )}
-                      </div>
+                {currentSlide.layout === "title" ? <>
+                  {currentSlide.subtitle && <div className={cn("slide-title-subtitle", activeTheme.subtext)}><MathRenderer text={currentSlide.subtitle} inline /></div>}
+                  {slideContent(cn("slide-title-body leading-relaxed", getIntroContentClass(textScale, currentSlide.content), activeTheme.subtext), currentSlide.content, "Click to add supporting text")}
+                </> : currentSlide.layout === "columns" ? (
+                  <div className="slide-two-columns">
+                    {slideContent(cn("slide-text-column leading-relaxed", getSolutionContentClass(textScale, currentSlide.content), activeTheme.subtext), currentSlide.content, "Click to add left-column text")}
+                    {slideContent(cn("slide-text-column leading-relaxed", getSolutionContentClass(textScale, currentSlide.secondaryContent), activeTheme.subtext), currentSlide.secondaryContent || "", "Click to add right-column text", false)}
+                  </div>
+                ) : currentSlide.layout === "statement" ? (
+                  <div className={cn("slide-key-result", activeTheme.text)} style={{ borderColor: activeTheme.accent, backgroundColor: `${activeTheme.accent}12` }}>
+                    {slideContent(cn("slide-key-result-content leading-relaxed", getIntroContentClass(textScale, currentSlide.content)), currentSlide.content, "Click to add a key result or takeaway")}
+                  </div>
+                ) : showTableLayout ? (
+                  <div className="slide-table-layout" data-layout={tableLayout}>
+                    {(currentSlide.content || currentSlide.visualContext) && slideContent(cn("slide-table-intro leading-relaxed", getSplitDualContentClass(textScale), activeTheme.subtext))}
+                    <div className="slide-table-visuals">
+                      {activeTables.length ? <SlideTables key={currentSlideIndex} tables={activeTables} accent={activeTheme.accent} fontSize={{ compact: 28, standard: 34, large: 42, xlarge: 50 }[textScale]} showFitWarning={!isFullscreen} /> : !isFullscreen && <button type="button" disabled={isEditing} className="slide-placeholder slide-table-placeholder" onClick={() => openEditor("tables")}><Table2 size={52} aria-hidden="true" />Click to add a table<span>Enter values, intervals, or signs</span></button>}
+                      {tableLayout === "table-graph" && graphPanel()}
                     </div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-5 items-center flex-1 min-h-0 overflow-hidden">
-                      <div className={cn("font-normal leading-relaxed overflow-y-auto max-h-full pr-2", getSplitSingleContentClass(textScale), activeTheme.subtext)}>
-                        <MathRenderer text={currentSlide.content} />
-                      </div>
-                      <div className="flex items-center justify-center h-full max-h-full overflow-hidden">
-                        <MathGraph
-                          title={activeGraphs[0]?.title}
-                          functions={activeGraphs[0]?.functions}
-                          points={activeGraphs[0]?.points}
-                          properties={activeGraphs[0]?.properties}
-                          bounds={activeGraphs[0]?.bounds}
-                          asymptotes={activeGraphs[0]?.asymptotes}
-                          symmetryAxis={activeGraphs[0]?.symmetryAxis}
-                          holes={activeGraphs[0]?.holes}
-                          isRadian={activeGraphs[0]?.isRadian}
-                          color={activeTheme.accent}
-                          equation={activeGraphs[0]?.equation}
-                        />
-                      </div>
-                    </div>
-                  )
+                  </div>
+                ) : showGraphLayout ? (
+                  <div className="slide-visual-layout" data-layout={graphLayout}>
+                    {(graphLayout !== "visual" || currentSlide.content || currentSlide.visualContext) && slideContent(cn("slide-explanation leading-relaxed", graphLayout === "graphs" || graphLayout === "visual" ? getSplitDualContentClass(textScale) : getSplitSingleContentClass(textScale), activeTheme.subtext))}
+                    {graphPanel()}
+                  </div>
                 ) : currentSlide.type === "intro" || currentSlideIndex === 0 ? (
-                  <div className="flex-1 flex flex-col justify-start items-start max-w-5xl py-2 sm:py-4 overflow-y-auto pr-2">
-                    <div className={cn("leading-relaxed tracking-normal", getIntroContentClass(textScale, currentSlide.content), activeTheme.text)}>
-                      <MathRenderer text={currentSlide.content} />
-                    </div>
-                  </div>
+                  slideContent(cn("flex-1 leading-relaxed tracking-normal overflow-y-auto pr-2", getIntroContentClass(textScale, currentSlide.content), activeTheme.text))
                 ) : (
-                  <div
-                    className={cn(
-                      "font-normal leading-relaxed max-w-5xl flex-1 overflow-y-auto pr-2",
-                      getSolutionContentClass(textScale, currentSlide.content),
-                      activeTheme.subtext
-                    )}
-                  >
-                    <MathRenderer text={currentSlide.content} />
-                  </div>
+                  slideContent(cn("font-normal leading-relaxed flex-1 overflow-y-auto pr-2", getSolutionContentClass(textScale, currentSlide.content), activeTheme.subtext))
                 )}
               </motion.div>
             </AnimatePresence>
@@ -692,7 +584,7 @@ export function SolutionDisplay({ solution, onReset, onSolutionChange }: Solutio
               />
             ))}
           </div>
-          <SlideDrawing key={currentSlideIndex} strokes={currentSlide.drawings || []} enabled={isDrawing && !isEditing} tool={drawingTool} color={inkColor} width={brushWidth} onStroke={addStroke} />
+          <SlideDrawing key={currentSlideIndex} strokes={currentSlide.drawings || EMPTY_DRAWINGS} enabled={isDrawing && !isEditing} tool={drawingTool} color={inkColor} width={brushWidth} onStroke={addStroke} />
         </SlideStage>
         {isFullscreen && showFullscreenTools && <div className="fullscreen-settings">
           <div className="flex items-center justify-between px-2 pb-2"><span className="text-xs font-semibold">Brush & color</span><button type="button" aria-label="Close drawing settings" onClick={() => setShowFullscreenTools(false)} className="studio-quiet-button">Close</button></div>
@@ -710,6 +602,20 @@ export function SolutionDisplay({ solution, onReset, onSolutionChange }: Solutio
       {/* Resize Handle */}
       <div
         onMouseDown={startResizing}
+        role="separator"
+        aria-label="Resize presenter panel"
+        aria-orientation="vertical"
+        aria-controls="presenter-controls"
+        aria-valuenow={sidebarWidth}
+        aria-valuemin={340}
+        aria-valuemax={1000}
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          event.preventDefault(); event.stopPropagation();
+          const maximum = Math.min(1000, window.innerWidth * 0.65);
+          setSidebarWidth((width) => event.key === "Home" ? 340 : event.key === "End" ? maximum : Math.max(340, Math.min(maximum, width + (event.key === "ArrowLeft" ? 24 : -24))));
+        }}
         className={cn(
           "presenter-resize-handle hidden lg:block",
           isResizing && "is-resizing"
@@ -718,18 +624,21 @@ export function SolutionDisplay({ solution, onReset, onSolutionChange }: Solutio
 
       {/* ========================================================================= */}
       {/* RIGHT PANEL: Presenter controls share the studio design system. */}
-      <aside className="presenter-sidebar" style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties} aria-label="Presenter controls">
+      <aside id="presenter-controls" tabIndex={-1} className="presenter-sidebar" style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties} aria-label="Presenter controls">
         <header className="presenter-header">
           <div className="presenter-title"><Presentation size={19} strokeWidth={1.5} aria-hidden="true" /><div><h2>Presenter Studio</h2><div className="presenter-timer"><Clock size={12} aria-hidden="true" /><span>{formatTimer(timerSeconds)}</span><button type="button" onClick={() => setIsTimerRunning(!isTimerRunning)}>{isTimerRunning ? "Pause" : "Resume"}</button></div></div></div>
-          <button type="button" onClick={onReset} title="Return to lesson studio" aria-label="Return to lesson selector" className="drawing-icon-button"><RotateCcw size={16} /></button>
+          <button type="button" onClick={onReset} disabled={isEditing} title="Return to lesson studio" aria-label="Return to lesson selector" className="drawing-icon-button"><RotateCcw size={16} /></button>
         </header>
         <div className="presenter-recording"><span>Lesson recording</span><ScreenRecorder /></div>
 
         <div className="presenter-body">
+          {controlMessage && <p role="status" className="presenter-notice">{controlMessage}</p>}
           <section className="presenter-section" aria-label="Slide editing">
             <div className="presenter-section-heading"><h3>Your slide</h3><span>{String(currentSlideIndex + 1).padStart(2, "0")} of {String(solution.slides.length).padStart(2, "0")}</span></div>
-            {isEditing ? <SlideEditor key={currentSlideIndex} slide={currentSlide} onSave={slide => { updateSlide(slide); setIsEditing(false); }} onCancel={() => setIsEditing(false)} /> :
-              <button type="button" onClick={() => { setIsDrawing(false); setIsEditing(true); }} className="studio-secondary-button presenter-edit-button"><Pencil size={15} aria-hidden="true" />Edit slide</button>}
+            {isEditing ? <SlideEditor key={currentSlideIndex} slide={currentSlide} initialGraphs={activeGraphs} initialSection={editorSection} onDirtyChange={setEditorDirty} onSave={slide => { updateSlide(slide); setGraphComparisonView(null); setIsEditing(false); setEditorDirty(false); setDeletedDeck(null); }} onCancel={() => { setIsEditing(false); setEditorDirty(false); }} /> :
+              <button type="button" onClick={() => openEditor()} className="studio-secondary-button presenter-edit-button"><Pencil size={15} aria-hidden="true" />Edit slide</button>}
+            {!isEditing && <button type="button" onClick={() => openEditor("graphs")} className="studio-quiet-button presenter-graph-button"><ChartNoAxesCombined size={15} aria-hidden="true" />Build or edit graphs</button>}
+            {!isEditing && <button type="button" onClick={() => openEditor("tables")} className="studio-quiet-button presenter-graph-button"><Table2 size={15} aria-hidden="true" />Add or edit tables</button>}
             <DrawingTools enabled={isDrawing && !isEditing} onEnabledChange={enabled => { if (!isEditing) setIsDrawing(enabled); }} tool={drawingTool} onToolChange={setDrawingTool} color={inkColor} onColorChange={setInkColor} width={brushWidth} onWidthChange={setBrushWidth} canUndo={Boolean(currentSlide.drawings?.length) && !isEditing} onUndo={undoDrawing} onClear={() => addStroke({ tool: "clear", color: inkColor, width: brushWidth, points: [] })} />
           </section>
 
@@ -748,21 +657,25 @@ export function SolutionDisplay({ solution, onReset, onSolutionChange }: Solutio
           </section>
 
           <section className="presenter-section">
-            <div className="presenter-section-heading"><h3><Volume2 size={14} aria-hidden="true" />Speaker notes</h3><div className="flex items-center gap-1"><button type="button" onClick={toggleSpeak} aria-label={isSpeaking ? "Stop reading aloud" : "Read speaker notes aloud"} title={isSpeaking ? "Stop reading aloud" : "Read speaker notes aloud"} className="drawing-icon-button">{isSpeaking ? <VolumeX size={15} /> : <Volume2 size={15} />}</button><button type="button" onClick={copyNote} aria-label={copied ? "Notes copied" : "Copy speaker notes"} title="Copy speaker notes" className="drawing-icon-button">{copied ? <Check size={15} /> : <Copy size={15} />}</button></div></div>
+            <div className="presenter-section-heading"><h3><Volume2 size={14} aria-hidden="true" />Speaker notes</h3><div className="flex items-center gap-1"><button type="button" onClick={toggleSpeak} disabled={!currentSlide.notes.trim()} aria-label={isSpeaking ? "Stop reading aloud" : "Read speaker notes aloud"} title={isSpeaking ? "Stop reading aloud" : "Read speaker notes aloud"} className="drawing-icon-button">{isSpeaking ? <VolumeX size={15} /> : <Volume2 size={15} />}</button><button type="button" onClick={copyNote} disabled={!currentSlide.notes.trim()} aria-label={copied ? "Notes copied" : "Copy speaker notes"} title="Copy speaker notes" className="drawing-icon-button">{copied ? <Check size={15} /> : <Copy size={15} />}</button></div></div>
             <div className="presenter-notes"><MathRenderer text={currentSlide.notes || "Add your own speaker notes with Edit slide."} /></div>
           </section>
 
           <section className="presenter-section">
             <div className="presenter-section-heading"><h3>Lesson slides</h3><span>{solution.slides.length} slides</span></div>
+            {solution.creationMode === "manual" && <button type="button" disabled={isEditing} className="studio-quiet-button" onClick={() => { onSolutionChange(createManualPresentation()); setDeletedDeck({ solution, index: currentSlideIndex }); selectSlide(0); openEditor(); }}>New blank presentation</button>}
+            <div className="deck-add-controls studio-form"><label className="studio-label"><span>New slide layout</span><select disabled={isEditing} value={slideTemplate} onChange={(event) => setSlideTemplate(event.target.value as SlideTemplate)}>{SLIDE_TEMPLATES.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><button type="button" disabled={isEditing} onClick={() => addSlide()} className="studio-secondary-button"><Plus size={14} />Add slide</button></div>
+            <div className="deck-slide-actions"><button type="button" disabled={isEditing} onClick={() => addSlide(true)} className="studio-quiet-button"><Copy size={13} />Duplicate</button><button type="button" disabled={isEditing || currentSlideIndex === 0} onClick={() => moveSlide(-1)} aria-label="Move slide earlier" className="drawing-icon-button"><ArrowUp size={14} /></button><button type="button" disabled={isEditing || currentSlideIndex === solution.slides.length - 1} onClick={() => moveSlide(1)} aria-label="Move slide later" className="drawing-icon-button"><ArrowDown size={14} /></button><button type="button" disabled={isEditing || solution.slides.length <= 1} aria-label="Delete slide" onClick={() => { setDeletedDeck({ solution, index: currentSlideIndex }); onSolutionChange({ ...solution, slides: solution.slides.filter((_, index) => index !== currentSlideIndex) }); selectSlide(Math.min(currentSlideIndex, solution.slides.length - 2)); }} className="drawing-icon-button"><Trash2 size={14} /></button></div>
+            {deletedDeck && <button type="button" className="studio-quiet-button" disabled={isEditing} onClick={() => { onSolutionChange(deletedDeck.solution); selectSlide(deletedDeck.index); setDeletedDeck(null); }}>Restore previous slides</button>}
             <div className="presenter-deck">
-              {solution.slides.map((slide, index) => <button key={index} type="button" onClick={() => selectSlide(index)} disabled={isEditing} aria-current={index === currentSlideIndex ? "step" : undefined} className="presenter-slide-link"><span className="presenter-slide-number">{String(index + 1).padStart(2, "0")}</span><span className="presenter-slide-name">{slide.title}</span><span className="presenter-slide-type">{slide.type === "intro" ? "Problem" : slide.type === "graph" || slide.type === "evidence" ? "Graph" : slide.type === "conclusion" || slide.type === "summary" ? "Recap" : "Solution"}</span></button>)}
+              {solution.slides.map((slide, index) => <button key={index} type="button" onClick={() => selectSlide(index)} disabled={isEditing} aria-current={index === currentSlideIndex ? "step" : undefined} className="presenter-slide-link"><span className="presenter-slide-number">{String(index + 1).padStart(2, "0")}</span><span className="presenter-slide-name">{slide.title || "Untitled slide"}</span><span className="presenter-slide-type">{slide.type === "custom" ? (hasTableLayout(slide.layout) ? "Table" : hasGraphLayout(slide.layout) ? "Graph" : slide.layout === "columns" ? "Columns" : slide.layout === "title" ? "Title" : slide.layout === "statement" ? "Key result" : "Text") : slide.type === "intro" ? "Problem" : slide.type === "graph" || slide.type === "evidence" ? "Graph" : slide.type === "conclusion" || slide.type === "summary" ? "Recap" : "Solution"}</span></button>)}
             </div>
           </section>
         </div>
 
         <footer className="presenter-footer"><div className="presenter-navigation"><button type="button" onClick={prevSlide} disabled={currentSlideIndex === 0 || isEditing} className="studio-secondary-button"><ChevronLeft size={16} aria-hidden="true" />Previous</button><button type="button" onClick={nextSlide} disabled={currentSlideIndex === solution.slides.length - 1 || isEditing} className="studio-button">Next<ChevronRight size={16} aria-hidden="true" /></button></div><p><kbd>←</kbd> <kbd>→</kbd> Slides <span>·</span> <kbd>F</kbd> Fullscreen <span>·</span> <kbd>Ctrl Z</kbd> Undo</p></footer>
       </aside>
-    </div>
+    </main>
   );
 }
 

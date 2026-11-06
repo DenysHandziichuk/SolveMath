@@ -58,7 +58,7 @@ export async function requestVisionCompletion(request: VisionRequest, clients: V
       if (signal.aborted) break;
       try {
         const parameters = {
-          messages, model, max_tokens: 6000, temperature: 0.1,
+          messages, model, max_tokens: 10000, temperature: 0.1,
           // Nano Omni otherwise spends the OCR output budget on reasoning.
           ...(model.startsWith("nvidia/nemotron-3-nano-omni-")
             ? { chat_template_kwargs: { enable_thinking: false } }
@@ -86,7 +86,7 @@ export async function requestVisionCompletion(request: VisionRequest, clients: V
           messages,
           model: "meta-llama/llama-4-scout-17b-16e-instruct",
           response_format: { type: "json_object" },
-          max_tokens: 6000,
+          max_tokens: 10000,
           temperature: 0.1,
         },
         { timeout: 30000, maxRetries: 1, signal }

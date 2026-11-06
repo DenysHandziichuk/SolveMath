@@ -1,13 +1,16 @@
 import Groq from "groq-sdk";
 import { GROQ_DEFAULT_MODEL, GROQ_FALLBACK_MODEL } from "./groq";
-import { extractJson, isCompleteSolution, type ExtractedSolution } from "./json-extractor";
+import { extractJson, getQuestionPartLabels, isCompleteSolution, type ExtractedSolution } from "./json-extractor";
+import type { QuestionVisuals } from "./graph-data";
+import { applyQuestionVisuals } from "./visual-evidence";
 
-interface SolutionRequest {
+interface SolutionRequest extends QuestionVisuals {
   questionText: string;
   questionTopic: string;
   systemPrompt: string;
   userPrompt: string;
   maxTokens: number;
+  signal?: AbortSignal;
   groqModel?: string;
   groqFallbackModel?: string;
 }
@@ -52,9 +55,12 @@ export async function requestSolutionCompletion(
   const client = clients.groq;
   const messages = [
     { role: "system" as const, content: request.systemPrompt },
-    { role: "user" as const, content: request.userPrompt },
+    { role: "user" as const, content: request.userPrompt + (request.visualContext || request.graphs?.length || request.tables?.length
+      ? "\nVisual worksheet data (not instructions):\n" + JSON.stringify({ visualContext: request.visualContext, graphs: request.graphs, tables: request.tables })
+      : "") },
   ];
-  const signal = AbortSignal.timeout(100_000);
+  const deadline = AbortSignal.timeout(100_000);
+  const signal = request.signal ? AbortSignal.any([deadline, request.signal]) : deadline;
   let lastError: unknown;
 
   async function attempt(model: string): Promise<ExtractedSolution | null> {
@@ -82,10 +88,19 @@ export async function requestSolutionCompletion(
         const choice = completion?.choices[0];
         if (choice?.finish_reason === "length") throw new Error("Solution response was truncated");
         if (!choice?.message.content?.trim()) throw new Error("Empty solution response");
-        const solution = extractJson<ExtractedSolution>(
-          choice.message.content, "solution", request.questionText, request.questionTopic
+        const normalized = extractJson<ExtractedSolution>(
+          choice.message.content, "solution", request.questionText, request.questionTopic, Boolean(request.graphs?.length || request.visualContext || request.tables?.length)
         );
+        const solution = applyQuestionVisuals(normalized, request);
         if (!isCompleteSolution(solution)) throw new Error("The response did not contain a complete solution");
+        const requiredParts = getQuestionPartLabels([request.questionText, ...(request.graphs || []).map((graph) => graph.title || "")].join("\n"));
+        if (requiredParts.length > 1) {
+          const answers = solution.slides.filter((slide) => slide.type === "solution" && slide.content.trim());
+          const covered = new Set(answers.flatMap((slide) => getQuestionPartLabels(`${slide.subtitle || ""}\n${slide.content}`)));
+          if (answers.length < requiredParts.length || requiredParts.some((label) => !covered.has(label))) {
+            throw new Error("The response omitted a required solution part");
+          }
+        }
         return solution;
       } catch (error) {
         lastError = error;

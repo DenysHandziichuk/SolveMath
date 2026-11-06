@@ -171,3 +171,34 @@ test("recovery rejects truncated output and never accepts a rejected generation 
 
   await assert.rejects(requestSolutionCompletion(qwenRequest, { groq }), /complete solution/i);
 });
+
+test("an AI deck that omits subparts is retried instead of returned as complete", async () => {
+  const text = "a) Solve $x+1=3$.\nb) Solve $x+2=6$.\nc) Solve $x+3=9$.";
+  const complete = { ...deck, slides: [
+    { ...deck.slides[0], content: text },
+    ...["a", "b", "c"].map((label, i) => ({ title: "Solution", type: "solution", subtitle: `Part ${label}: Solve`, content: `$x = ${2 * (i + 1)}$`, notes: "Subtract the constant." })),
+    { ...deck.slides[2], content: "a) $x=2$\nb) $x=4$\nc) $x=6$" },
+  ] };
+  const incomplete = { ...complete, slides: [complete.slides[0], complete.slides[1], complete.slides.at(-1)] };
+  const calls: string[] = [];
+  const groq = new Groq({ apiKey: "test-key", fetch: async (_url, init) => {
+    const parameters = JSON.parse(String(init?.body));
+    calls.push(parameters.model);
+    return completion(JSON.stringify(parameters.model === request.groqModel ? incomplete : complete));
+  } });
+  const result = await requestSolutionCompletion({ ...request, questionText: text }, { groq });
+  assert.deepEqual(calls, [request.groqModel, request.groqFallbackModel]);
+  assert.equal(result.slides.filter((slide) => slide.type === "solution").length, 3);
+});
+
+test("canceling an in-flight solution request does not start a backup model", async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  const groq = new Groq({ apiKey: "test-key", fetch: async () => {
+    calls++;
+    controller.abort();
+    throw new DOMException("Canceled", "AbortError");
+  } });
+  await assert.rejects(requestSolutionCompletion({ ...request, signal: controller.signal }, { groq }), /complete solution/);
+  assert.equal(calls, 1);
+});

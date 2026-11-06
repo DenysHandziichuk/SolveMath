@@ -20,7 +20,6 @@ export const NVIDIA_VISION_FALLBACK_MODEL =
 export function getNvidiaClient(): OpenAI {
   const apiKey =
     process.env.NVIDIA_API_KEY ||
-    process.env.GROQ_API_KEY ||
     "placeholder-key-for-build";
 
   return new OpenAI({

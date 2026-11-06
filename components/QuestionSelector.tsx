@@ -4,18 +4,17 @@ import { useId, useRef, useState } from "react";
 import { ArrowRight, BookOpen, Pencil } from "lucide-react";
 import { MathRenderer } from "./MathRenderer";
 import { QuestionEditor } from "./QuestionEditor";
+import { MathGraph } from "./MathGraph";
+import { MathTable } from "./MathTable";
+import type { ExtractedQuestion } from "@/lib/json-extractor";
+import type { SlideTable } from "@/lib/slide-tables";
 
-interface Question {
-  id: string;
-  text: string;
-  difficulty: number;
-  type: string;
-}
+type Question = ExtractedQuestion;
 
 interface QuestionSelectorProps {
   questions: Question[];
   onSelect: (question: Question) => void;
-  onUpdate: (index: number, text: string) => void;
+  onUpdate: (index: number, text: string, visualContext?: string, tables?: SlideTable[]) => void;
   isSolving: boolean;
 }
 
@@ -88,8 +87,10 @@ export function QuestionSelector({ questions, onSelect, onUpdate, isSolving }: Q
                     id={editorId + "-" + index}
                     label={label}
                     text={q.text}
-                    onSave={(text) => {
-                      onUpdate(index, text);
+                    visualContext={q.visualContext}
+                    tables={q.tables}
+                    onSave={(text, visualContext, tables) => {
+                      onUpdate(index, text, visualContext, tables);
                       closeEditor();
                     }}
                     onCancel={closeEditor}
@@ -99,6 +100,9 @@ export function QuestionSelector({ questions, onSelect, onUpdate, isSolving }: Q
                     <div className="question-content">
                       <MathRenderer text={q.text} />
                     </div>
+                    {q.visualContext && <details className="question-visual-evidence" open><summary>Graph & table information</summary><MathRenderer text={q.visualContext} /><p className="studio-help">Check these observations before creating slides. Approximate sketches use schematic coordinates.</p></details>}
+                    {!!q.tables?.length && <div className="question-table-previews">{q.tables.map((table, index) => <div className="question-table-preview" key={index}><MathTable table={table} index={index} /></div>)}</div>}
+                    {!!q.graphs?.length && <div className="question-graph-previews">{q.graphs.map((graph, index) => <MathGraph key={index} {...graph} compact />)}</div>}
                     <button
                       type="button"
                       disabled={isSolving || isEditing}
